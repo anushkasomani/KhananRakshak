@@ -9,74 +9,122 @@ import {
   Incident,
   AuditBlock,
   ComplianceKPIs,
+  AttendanceRecord,
+  MyAttendance,
+  MineAttendance,
+  Escalation,
+  EscalationRecipient,
+  MineDashboard,
+  MinesOverview,
 } from '../types';
 
 const API_BASE = '/api';
+export const TOKEN_KEY = 'minesafe_token';
 
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('minesafe_token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+function toQuery(params?: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value) search.set(key, value);
+  });
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+async function request<T = any>(path: string, options: { method?: string; body?: unknown; auth?: boolean } = {}): Promise<T> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && options.auth !== false ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+  return data as T;
+}
+
+export interface OnboardingInput {
+  name: string;
+  phone: string;
+  role: string;
+  officerType?: string;
+  trade?: string;
+  mineId?: string;
+  badgeNumber?: string;
+}
+
+export interface MineInput {
+  name?: string;
+  code?: string;
+  locality?: string;
+  state?: string;
+  region?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
+}
+
+export interface GpsReading {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  capturedAt?: string;
 }
 
 export const api = {
-  // Auth
-  async login(email: string, password: string) {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Login failed');
-    return res.json();
-  },
+  // Auth & onboarding
+  login: (email: string, password: string) =>
+    request<{ token: string; user: User }>('/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  googleLogin: (credential: string) =>
+    request<{ token: string; user: User }>('/auth/google', { method: 'POST', body: { credential }, auth: false }),
+  getMe: () => request<User>('/auth/me'),
+  getOnboardingMines: () => request<Pick<Mine, 'id' | 'name' | 'locality' | 'state'>[]>('/auth/onboarding/mines'),
+  submitOnboarding: (data: OnboardingInput) => request<User>('/auth/onboarding', { method: 'POST', body: data }),
 
-  async switchRole(role: string, email?: string) {
-    const res = await fetch(`${API_BASE}/auth/switch-role`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, email }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Switch role failed');
-    return res.json();
-  },
-
-  async getDemoUsers(): Promise<User[]> {
-    const res = await fetch(`${API_BASE}/auth/demo-users`);
-    return res.json();
-  },
-
-  async getMe(): Promise<User> {
-    const res = await fetch(`${API_BASE}/auth/me`, {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch user');
-    return res.json();
-  },
+  // Admin
+  getUsers: (params?: { status?: string; mineId?: string }) => request<User[]>(`/admin/users${toQuery(params)}`),
+  createUser: (data: Record<string, unknown>) => request<User>('/admin/users', { method: 'POST', body: data }),
+  updateUser: (id: string, data: Record<string, unknown>) => request<User>(`/admin/users/${id}`, { method: 'PATCH', body: data }),
 
   // Mines
-  async getMines(): Promise<Mine[]> {
-    const res = await fetch(`${API_BASE}/mines`);
-    return res.json();
-  },
+  getMines: () => request<Mine[]>('/mines'),
+  getMine: (id: string) => request<Mine>(`/mines/${id}`),
+  createMine: (data: MineInput) => request<Mine>('/mines', { method: 'POST', body: data }),
+  updateMine: (id: string, data: MineInput) => request<Mine>(`/mines/${id}`, { method: 'PATCH', body: data }),
 
-  async getMine(id: string): Promise<Mine> {
-    const res = await fetch(`${API_BASE}/mines/${id}`);
-    return res.json();
-  },
+  // Attendance
+  getMyAttendance: () => request<MyAttendance>('/attendance/me'),
+  checkIn: (reading: GpsReading) => request<AttendanceRecord>('/attendance/check-in', { method: 'POST', body: reading }),
+  checkOut: (reading: GpsReading) => request<AttendanceRecord>('/attendance/check-out', { method: 'POST', body: reading }),
+  getMineAttendance: (mineId: string, date?: string) =>
+    request<MineAttendance>(`/attendance/mine/${mineId}${toQuery({ date })}`),
+  markPresent: (userId: string, note: string) => request<AttendanceRecord>('/attendance/mark', { method: 'POST', body: { userId, note } }),
+  undoMark: (recordId: string) => request(`/attendance/mark/${recordId}`, { method: 'DELETE' }),
 
-  // Safety Reports
-  async getSafetyReports(params?: { mineId?: string; severity?: string; status?: string }): Promise<SafetyReport[]> {
-    const search = new URLSearchParams(params as any).toString();
-    const res = await fetch(`${API_BASE}/safety-reports?${search}`, {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
-  },
+  // Role dashboards
+  getMineDashboard: (mineId: string, withTrends = false) =>
+    request<MineDashboard>(`/dashboard/mine/${mineId}${withTrends ? '?trends=1' : ''}`),
+  getMinesOverview: () => request<MinesOverview>('/dashboard/overview'),
 
-  async createSafetyReport(data: {
+  // Escalations
+  getEscalationRecipients: (params: { mineId: string; toRole: string; officerType?: string }) =>
+    request<EscalationRecipient[]>(`/escalations/recipients${toQuery(params)}`),
+  escalate: (data: { recordType: 'INCIDENT' | 'SOS'; recordId: string; toRole: string; toOfficerType?: string; reason: string }) =>
+    request<{ escalation: Escalation; recipients: EscalationRecipient[]; callStatus: Escalation['callStatus'] }>('/escalations', {
+      method: 'POST',
+      body: data,
+    }),
+  getEscalations: (recordType: 'INCIDENT' | 'SOS', recordId: string) =>
+    request<Escalation[]>(`/escalations${toQuery({ recordType, recordId })}`),
+  getEscalationInbox: () => request<{ forMe: Escalation[]; sent: Escalation[]; canReceive: boolean }>('/escalations/inbox'),
+  acknowledgeEscalation: (id: string) => request<Escalation>(`/escalations/${id}/acknowledge`, { method: 'POST' }),
+
+  // Safety reports
+  getSafetyReports: (params?: { mineId?: string; severity?: string; status?: string }) =>
+    request<SafetyReport[]>(`/safety-reports${toQuery(params)}`),
+  createSafetyReport: (data: {
     mineId: string;
     zoneId?: string;
     category: string;
@@ -84,237 +132,79 @@ export const api = {
     description: string;
     immediateActionTaken?: string;
     imageUrl?: string;
-  }) {
-    const res = await fetch(`${API_BASE}/safety-reports`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to submit report');
-    return res.json();
-  },
+  }) => request('/safety-reports', { method: 'POST', body: data }),
+  updateSafetyReportStatus: (id: string, data: { status: string; assignedOfficer?: string; correctiveActionText?: string }) =>
+    request(`/safety-reports/${id}/status`, { method: 'PATCH', body: data }),
 
-  async updateSafetyReportStatus(id: string, data: { status: string; assignedOfficer?: string; correctiveActionText?: string }) {
-    const res = await fetch(`${API_BASE}/safety-reports/${id}/status`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to update report');
-    return res.json();
-  },
+  // Grievances
+  getGrievances: (params?: { mineId?: string; status?: string }) => request<Grievance[]>(`/grievances${toQuery(params)}`),
+  submitGrievance: (data: { mineId: string; category: string; description: string; anonymityType: 'ANONYMOUS' | 'CONFIDENTIAL' | 'IDENTIFIED' }) =>
+    request('/grievances', { method: 'POST', body: data }),
+  trackGrievance: (trackingCode: string) => request(`/grievances/track/${encodeURIComponent(trackingCode.trim())}`),
+  escalateGrievance: (id: string, reason?: string, targetTier?: string) =>
+    request(`/grievances/${encodeURIComponent(id)}/escalate`, { method: 'POST', body: { reason, targetTier } }),
+  respondGrievance: (id: string, data: { status?: string; note?: string; assignedInvestigator?: string }) =>
+    request(`/grievances/${encodeURIComponent(id)}/respond`, { method: 'POST', body: data }),
 
-  // Grievances (USP 1)
-  async getGrievances(params?: { mineId?: string; status?: string }): Promise<Grievance[]> {
-    const search = new URLSearchParams(params as any).toString();
-    const res = await fetch(`${API_BASE}/grievances?${search}`, {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
-  },
-
-  async submitGrievance(data: {
-    mineId: string;
-    category: string;
-    description: string;
-    anonymityType: 'ANONYMOUS' | 'CONFIDENTIAL' | 'IDENTIFIED';
-  }) {
-    const res = await fetch(`${API_BASE}/grievances`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to submit grievance');
-    return res.json();
-  },
-
-  async trackGrievance(trackingCode: string): Promise<any> {
-    const res = await fetch(`${API_BASE}/grievances/track/${trackingCode.trim()}`);
-    if (!res.ok) throw new Error((await res.json()).error || 'Tracking ID not found');
-    return res.json();
-  },
-
-  async escalateGrievance(id: string, reason?: string, targetTier?: string) {
-    const res = await fetch(`${API_BASE}/grievances/${id}/escalate`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ reason, targetTier }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to escalate grievance');
-    return res.json();
-  },
-
-  async respondGrievance(id: string, data: { status?: string; note?: string; assignedInvestigator?: string }) {
-    const res = await fetch(`${API_BASE}/grievances/${id}/respond`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to respond to grievance');
-    return res.json();
-  },
-
-  // SOS (USP 4)
-  async triggerSos(data: {
-    mineId: string;
-    zoneId?: string;
-    emergencyType: string;
-    workerIdentifier?: string;
-    locationNotes?: string;
-  }) {
-    const res = await fetch(`${API_BASE}/sos`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to trigger SOS');
-    return res.json();
-  },
-
-  async getActiveSos(): Promise<SosAlert[]> {
-    const res = await fetch(`${API_BASE}/sos/active`);
-    return res.json();
-  },
-
-  async getSosHistory(): Promise<SosAlert[]> {
-    const res = await fetch(`${API_BASE}/sos/history`);
-    return res.json();
-  },
-
-  async updateSosStatus(id: string, data: { status: string; assignedTeams?: string; responderNotes?: string }) {
-    const res = await fetch(`${API_BASE}/sos/${id}/status`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to update SOS');
-    return res.json();
-  },
+  // SOS
+  triggerSos: (data: { mineId: string; zoneId?: string; emergencyType: string; workerIdentifier?: string; locationNotes?: string }) =>
+    request('/sos', { method: 'POST', body: data }),
+  getActiveSos: () => request<SosAlert[]>('/sos/active'),
+  getSosHistory: () => request<SosAlert[]>('/sos/history'),
+  updateSosStatus: (id: string, data: { status: string; assignedTeams?: string; responderNotes?: string }) =>
+    request(`/sos/${id}/status`, { method: 'PATCH', body: data }),
 
   // Inspections
-  async getInspections(params?: { mineId?: string }): Promise<Inspection[]> {
-    const search = new URLSearchParams(params as any).toString();
-    const res = await fetch(`${API_BASE}/inspections?${search}`);
-    return res.json();
-  },
+  getInspections: (params?: { mineId?: string }) => request<Inspection[]>(`/inspections${toQuery(params)}`),
+  assignInspection: (data: { mineId: string; assignedToId: string; inspectionType: string; title?: string; dueDate: string }) =>
+    request<Inspection>('/inspections/assign', { method: 'POST', body: data }),
+  submitInspection: (
+    id: string,
+    data: { outcome: 'DONE' | 'NOT_DONE'; note?: string; photos: string[]; latitude?: number; longitude?: number }
+  ) => request<Inspection>(`/inspections/${encodeURIComponent(id)}/submit`, { method: 'POST', body: data }),
+  reviewInspection: (id: string, data: { decision: 'APPROVE' | 'RETURN'; note?: string }) =>
+    request<Inspection>(`/inspections/${encodeURIComponent(id)}/review`, { method: 'POST', body: data }),
 
-  async createInspection(data: any) {
-    const res = await fetch(`${API_BASE}/inspections`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to create inspection');
-    return res.json();
-  },
-
-  // Corrective Actions
-  async getCorrectiveActions(params?: { priority?: string; status?: string }): Promise<CorrectiveAction[]> {
-    const search = new URLSearchParams(params as any).toString();
-    const res = await fetch(`${API_BASE}/corrective-actions?${search}`);
-    return res.json();
-  },
-
-  async createCorrectiveAction(data: any) {
-    const res = await fetch(`${API_BASE}/corrective-actions`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to create action');
-    return res.json();
-  },
-
-  async updateCorrectiveAction(id: string, data: any) {
-    const res = await fetch(`${API_BASE}/corrective-actions/${id}`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    return res.json();
-  },
+  // Corrective actions
+  getCorrectiveActions: (params?: { priority?: string; status?: string }) =>
+    request<CorrectiveAction[]>(`/corrective-actions${toQuery(params)}`),
+  createCorrectiveAction: (data: any) => request('/corrective-actions', { method: 'POST', body: data }),
+  updateCorrectiveAction: (id: string, data: any) => request(`/corrective-actions/${id}`, { method: 'PATCH', body: data }),
 
   // Incidents
-  async getIncidents(): Promise<Incident[]> {
-    const res = await fetch(`${API_BASE}/incidents`);
-    return res.json();
-  },
+  getIncidents: () => request<Incident[]>('/incidents'),
+  logIncident: (data: {
+    mineId: string;
+    incidentType: string;
+    severity: string;
+    location: string;
+    description: string;
+    peopleAffected?: number;
+    immediateResponse?: string;
+  }) => request<{ incident: Incident }>('/incidents', { method: 'POST', body: data }),
 
-  async logIncident(data: any) {
-    const res = await fetch(`${API_BASE}/incidents`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-    });
-    return res.json();
-  },
+  // Compliance
+  getComplianceDashboard: (mineId?: string) =>
+    request<{
+      kpis: ComplianceKPIs;
+      categoryBreakdown: { name: string; count: number }[];
+      severityBreakdown: { name: string; count: number }[];
+      monthlyTrends: any[];
+    }>(`/compliance/dashboard${toQuery({ mineId })}`),
+  getCorporateSummary: () => request<any[]>('/compliance/corporate-summary'),
 
-  // Compliance (Sections 13 & 14)
-  async getComplianceDashboard(mineId?: string): Promise<{
-    kpis: ComplianceKPIs;
-    categoryBreakdown: { name: string; count: number }[];
-    severityBreakdown: { name: string; count: number }[];
-    monthlyTrends: any[];
-  }> {
-    const res = await fetch(`${API_BASE}/compliance/dashboard${mineId ? `?mineId=${mineId}` : ''}`);
-    return res.json();
-  },
+  // Audit
+  getAuditBlocks: () => request<AuditBlock[]>('/audit/blocks'),
+  verifyRecordIntegrity: (recordId: string) => request(`/audit/verify/${encodeURIComponent(recordId.trim())}`),
+  simulateTamper: (blockIndex?: number) => request('/audit/simulate-tamper', { method: 'POST', body: { blockIndex } }),
+  repairAuditChain: () => request('/audit/repair-chain', { method: 'POST' }),
 
-  async getCorporateSummary(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/compliance/corporate-summary`);
-    return res.json();
-  },
-
-  // Tamper-Evident Audit (USP 3)
-  async getAuditBlocks(): Promise<AuditBlock[]> {
-    const res = await fetch(`${API_BASE}/audit/blocks`);
-    return res.json();
-  },
-
-  async verifyRecordIntegrity(recordId: string) {
-    const res = await fetch(`${API_BASE}/audit/verify/${recordId.trim()}`);
-    return res.json();
-  },
-
-  async simulateTamper(blockIndex?: number) {
-    const res = await fetch(`${API_BASE}/audit/simulate-tamper`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ blockIndex }),
-    });
-    return res.json();
-  },
-
-  async repairAuditChain() {
-    const res = await fetch(`${API_BASE}/audit/repair-chain`, {
-      method: 'POST',
-    });
-    return res.json();
-  },
-
-  // Recognition (USP 2)
-  async getLeaderboard() {
-    const res = await fetch(`${API_BASE}/recognition/leaderboard`);
-    return res.json();
-  },
-
-  async getMyPoints() {
-    const res = await fetch(`${API_BASE}/recognition/my-points`, {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
-  },
+  // Recognition
+  getLeaderboard: () => request('/recognition/leaderboard'),
+  getMyPoints: () => request('/recognition/my-points'),
 
   // Notifications
-  async getNotifications() {
-    const res = await fetch(`${API_BASE}/notifications`, {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
-  },
-
-  async getAnnouncements(mineId?: string) {
-    const res = await fetch(`${API_BASE}/notifications/announcements${mineId ? `?mineId=${mineId}` : ''}`);
-    return res.json();
-  },
+  getNotifications: () => request('/notifications'),
+  markNotificationRead: (id: string) => request(`/notifications/${id}/read`, { method: 'PATCH' }),
+  getAnnouncements: (mineId?: string) => request(`/notifications/announcements${toQuery({ mineId })}`),
 };

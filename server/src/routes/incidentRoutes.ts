@@ -1,16 +1,20 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { optionalAuthenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest, requireLevel, actorRole, mineScope, canSeeMine } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/incidents
-router.get('/', async (req, res) => {
+const INCIDENT_TYPES = ['METHANE_SPIKE', 'ROOF_FALL', 'EQUIPMENT_JAM', 'MINOR_INJURY', 'ELECTRICAL_SHORT', 'FIRE', 'INUNDATION', 'OTHER'];
+const SEVERITIES = ['MINOR', 'SERIOUS', 'CRITICAL', 'FATALITY'];
+
+router.get('/', async (req: AuthenticatedRequest, res) => {
   const { mineId, severity } = req.query;
   const where: any = {};
-  if (mineId) where.mineId = String(mineId);
+  const scope = mineScope(req);
+  if (scope) where.mineId = scope;
+  else if (mineId) where.mineId = String(mineId);
   if (severity) where.severity = String(severity);
 
   const incidents = await prisma.incident.findMany({
@@ -24,13 +28,16 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/incidents
-router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { mineId, incidentType, location, severity, description, peopleAffected, immediateResponse, rootCause } = req.body;
 
     if (!mineId || !incidentType || !location || !description) {
       return res.status(400).json({ error: 'Mine, incident type, location, and description are required' });
     }
+    if (!canSeeMine(req, String(mineId))) return res.status(403).json({ error: 'You can only log incidents for your own mine.' });
+    if (!INCIDENT_TYPES.includes(incidentType)) return res.status(400).json({ error: 'Choose an incident type.' });
+    if (severity && !SEVERITIES.includes(severity)) return res.status(400).json({ error: 'Choose a severity.' });
 
     const rand = Math.floor(10000 + Math.random() * 90000);
     const incId = `INC-2026-${rand}`;
@@ -44,8 +51,10 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
         severity: severity || 'SERIOUS',
         description,
         peopleAffected: peopleAffected ? parseInt(String(peopleAffected), 10) : 0,
-        immediateResponse: immediateResponse || 'Dispatched emergency team',
+        immediateResponse: immediateResponse || 'Not recorded',
         rootCause: rootCause || null,
+        reportedById: req.user?.id,
+        reportedByName: req.user?.name,
         status: 'INVESTIGATING'
       },
       include: { mine: true }
@@ -55,7 +64,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       recordType: 'INCIDENT',
       recordId: incident.id,
       action: 'CREATED',
-      performedByRole: req.user ? req.user.role : 'SAFETY_OFFICER',
+      performedByRole: actorRole(req),
       data: {
         id: incident.id,
         type: incident.incidentType,

@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { requireAdmin } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/audit/blocks (Chained Ledger Explorer)
 router.get('/blocks', async (req, res) => {
@@ -20,7 +20,7 @@ router.get('/verify/:recordId', async (req, res) => {
 });
 
 // POST /api/audit/simulate-tamper (Demonstration utility for live testing integrity detection)
-router.post('/simulate-tamper', async (req, res) => {
+router.post('/simulate-tamper', requireAdmin, async (req, res) => {
   try {
     const { blockIndex } = req.body;
     const targetIndex = blockIndex ? parseInt(String(blockIndex), 10) : 2;
@@ -51,7 +51,7 @@ router.post('/simulate-tamper', async (req, res) => {
 });
 
 // POST /api/audit/repair-chain (Restore integrity after simulation)
-router.post('/repair-chain', async (_req, res) => {
+router.post('/repair-chain', requireAdmin, async (_req, res) => {
   try {
     // Re-seed audit blocks cleanly
     const blocks = await prisma.auditBlock.findMany({ orderBy: { blockIndex: 'asc' } });

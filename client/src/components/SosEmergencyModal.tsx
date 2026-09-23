@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertOctagon, X, Flame, ShieldAlert, HeartPulse, Wrench, Wind, AlertTriangle } from 'lucide-react';
+import { AlertOctagon, X, Flame, HeartPulse, Wrench, Wind, Waves, Check } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Mine } from '../types';
@@ -12,26 +12,22 @@ interface SosEmergencyModalProps {
 }
 
 const EMERGENCY_TYPES = [
-  { id: 'GAS_HAZARD', label: 'Gas / Methane Hazard', icon: Wind, color: 'text-amber-400 border-amber-500/40 bg-amber-950/30' },
-  { id: 'MEDICAL_EMERGENCY', label: 'Medical Emergency', icon: HeartPulse, color: 'text-rose-400 border-rose-500/40 bg-rose-950/30' },
-  { id: 'FIRE', label: 'Underground Fire / Smoke', icon: Flame, color: 'text-orange-400 border-orange-500/40 bg-orange-950/30' },
-  { id: 'ACCIDENT', label: 'Roof Fall / Heavy Machinery Accident', icon: AlertOctagon, color: 'text-red-400 border-red-500/40 bg-red-950/30' },
-  { id: 'EQUIPMENT_FAILURE', label: 'Winding Gear / Power Outage', icon: Wrench, color: 'text-yellow-400 border-yellow-500/40 bg-yellow-950/30' },
-  { id: 'UNSAFE_CONDITION', label: 'Imminent Inundation / Flooding', icon: ShieldAlert, color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/30' },
+  { id: 'ACCIDENT', label: 'Roof fall / accident', icon: AlertOctagon },
+  { id: 'GAS_HAZARD', label: 'Gas / methane', icon: Wind },
+  { id: 'FIRE', label: 'Fire / smoke', icon: Flame },
+  { id: 'MEDICAL_EMERGENCY', label: 'Medical', icon: HeartPulse },
+  { id: 'EQUIPMENT_FAILURE', label: 'Power / winder failure', icon: Wrench },
+  { id: 'UNSAFE_CONDITION', label: 'Flooding', icon: Waves },
 ];
 
-export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({
-  isOpen,
-  onClose,
-  mines,
-  onTriggered,
-}) => {
+export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, onClose, mines, onTriggered }) => {
   const { user } = useAuth();
   const [selectedType, setSelectedType] = useState('ACCIDENT');
-  const [mineId, setMineId] = useState(user?.mineId || (mines[0]?.id || ''));
+  const [mineId, setMineId] = useState(user?.mineId || '');
   const [zoneId, setZoneId] = useState('');
   const [locationNotes, setLocationNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [successEvent, setSuccessEvent] = useState<any>(null);
 
   if (!isOpen) return null;
@@ -42,118 +38,93 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({
   const handleTrigger = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setError(null);
     try {
       const res = await api.triggerSos({
         mineId: currentMine?.id || mineId,
-        zoneId: zoneId || (zones[0]?.id || undefined),
+        zoneId: zoneId || undefined,
         emergencyType: selectedType,
-        workerIdentifier: user ? `${user.name} (${user.badgeNumber || 'Crew ID'})` : 'ANONYMOUS-MINE-WORKER',
+        workerIdentifier: user ? `${user.name}${user.badgeNumber ? ` (${user.badgeNumber})` : ''}` : 'ANONYMOUS',
         locationNotes,
       });
-
       setSuccessEvent(res.alert);
-      if (onTriggered) onTriggered(res.alert.id);
+      onTriggered?.(res.alert.id);
     } catch (err: any) {
-      alert(err.message || 'Failed to trigger emergency alert');
+      setError(err.message || 'Could not send the alert. Try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDismiss = () => {
+  const handleClose = () => {
     setSuccessEvent(null);
+    setError(null);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-xl bg-slate-900 border-2 border-red-500/60 rounded-2xl shadow-glow-danger overflow-hidden">
-        {/* Pulsing Alert Banner Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-red-600 via-rose-700 to-red-600 flex items-center justify-between text-white">
-          <div className="flex items-center gap-3">
-            <span className="p-2 bg-red-950/80 rounded-lg animate-pulse-fast">
-              <AlertOctagon className="w-6 h-6 text-red-300" />
-            </span>
-            <div>
-              <h2 className="text-xl font-bold tracking-wide uppercase">🚨 Emergency SOS Dispatch</h2>
-              <p className="text-xs text-red-100 font-medium">
-                Immediate Broadcast to Surface Control Room & Rescue Teams
-              </p>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70">
+      <div className="w-full sm:max-w-md bg-zinc-900 border border-white/[0.08] rounded-t-2xl sm:rounded-2xl shadow-panel-lg max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 h-14 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            <h2 className="text-sm font-semibold">Emergency SOS</h2>
           </div>
-          <button
-            onClick={handleDismiss}
-            className="p-1.5 rounded-lg bg-red-900/60 hover:bg-red-800 text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={handleClose} aria-label="Close" className="btn-ghost -mr-2">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {successEvent ? (
-          <div className="p-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-500/20 border-2 border-red-500 flex items-center justify-center animate-bounce">
-              <AlertTriangle className="w-9 h-9 text-red-400" />
+          <div className="p-6 text-center">
+            <div className="w-12 h-12 mx-auto rounded-full bg-red-500/10 flex items-center justify-center">
+              <Check className="w-6 h-6 text-red-400" />
             </div>
-            <h3 className="text-2xl font-bold text-red-400">EMERGENCY BROADCAST ACTIVE</h3>
-            <p className="text-slate-300 text-sm max-w-md mx-auto">
-              Alert Reference: <span className="font-mono text-cyan-400 font-bold">{successEvent.id}</span>
-              <br />
-              Rescue responders, shift supervisor, and medical triage have been notified.
+            <h3 className="mt-4 text-base font-semibold">Alert sent</h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              The control room and rescue team have been notified.
             </p>
-            <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 text-left text-xs font-mono space-y-1">
-              <div>Mine: {currentMine?.name}</div>
-              <div>Type: {successEvent.emergencyType}</div>
-              <div>Status: {successEvent.status}</div>
-              <div>Timestamp: {new Date(successEvent.triggeredAt).toLocaleTimeString()}</div>
-            </div>
-            <button
-              onClick={handleDismiss}
-              className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-red-600/30"
-            >
-              Return to Platform / View Control Room
+            <p className="mt-4 font-mono text-xs text-zinc-500">{successEvent.id}</p>
+            <button onClick={handleClose} className="btn-secondary w-full mt-6">
+              Done
             </button>
           </div>
         ) : (
-          <form onSubmit={handleTrigger} className="p-6 space-y-5">
+          <form onSubmit={handleTrigger} className="p-5 space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Select Emergency Hazard Category
-              </label>
-              <div className="grid grid-cols-2 gap-2.5">
-                {EMERGENCY_TYPES.map((t) => {
-                  const Icon = t.icon;
-                  const isSelected = selectedType === t.id;
+              <label className="label">What's happening?</label>
+              <div className="grid grid-cols-2 gap-2">
+                {EMERGENCY_TYPES.map(({ id, label, icon: Icon }) => {
+                  const selected = selectedType === id;
                   return (
                     <button
-                      key={t.id}
+                      key={id}
                       type="button"
-                      onClick={() => setSelectedType(t.id)}
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border text-left text-xs font-semibold transition-all ${
-                        isSelected
-                          ? 'border-red-500 bg-red-950/40 text-red-200 ring-2 ring-red-500/50'
-                          : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      onClick={() => setSelectedType(id)}
+                      className={`flex items-center gap-2 h-10 px-3 rounded-lg border text-left text-sm transition-colors ${
+                        selected
+                          ? 'border-red-500/60 bg-red-500/10 text-zinc-100'
+                          : 'border-white/[0.08] text-zinc-400 hover:text-zinc-200 hover:border-white/15'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-red-400' : 'text-slate-400'}`} />
-                      <span>{t.label}</span>
+                      <Icon className={`w-4 h-4 shrink-0 ${selected ? 'text-red-400' : ''}`} />
+                      <span className="truncate">{label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                  Mine Complex
-                </label>
+                <label className="label">Mine</label>
                 <select
-                  value={mineId}
+                  value={currentMine?.id || ''}
                   onChange={(e) => {
                     setMineId(e.target.value);
                     setZoneId('');
                   }}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-red-500"
+                  className="input"
                 >
                   {mines.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -162,20 +133,13 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({
                   ))}
                 </select>
               </div>
-
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                  Zone / Undergound Section
-                </label>
-                <select
-                  value={zoneId}
-                  onChange={(e) => setZoneId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-red-500"
-                >
-                  <option value="">Select Zone / Section</option>
+                <label className="label">Zone</label>
+                <select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className="input">
+                  <option value="">Unknown</option>
                   {zones.map((z) => (
                     <option key={z.id} value={z.id}>
-                      {z.name} ({z.depthLevel})
+                      {z.name}
                     </option>
                   ))}
                 </select>
@@ -183,43 +147,21 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Additional Landmark / Crew Location Notes (Optional)
-              </label>
+              <label className="label">Location details (optional)</label>
               <input
                 type="text"
-                placeholder="e.g. Near Haulage Incline 3, 2 miners trapped near refuge door"
+                placeholder="e.g. Near haulage incline 3"
                 value={locationNotes}
                 onChange={(e) => setLocationNotes(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-red-500"
+                className="input"
               />
             </div>
 
-            <div className="p-3 bg-red-950/30 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span>
-                Activating this SOS will immediately sound audible visual klaxons in the mine's main surface control
-                room and record an immutable event in the tamper-evident audit ledger.
-              </span>
-            </div>
+            {error && <p className="text-sm text-red-400">{error}</p>}
 
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex-1 py-3 px-6 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-sm tracking-wider uppercase rounded-xl transition-all shadow-lg shadow-red-600/40 flex items-center justify-center gap-2"
-              >
-                <AlertOctagon className="w-5 h-5 animate-pulse-fast" />
-                {isSubmitting ? 'DISPATCHING ALERT...' : 'TRANSMIT EMERGENCY SOS NOW'}
-              </button>
-            </div>
+            <button type="submit" disabled={isSubmitting || mines.length === 0} className="btn-danger w-full h-11 text-sm font-semibold">
+              {isSubmitting ? 'Sending…' : 'Send SOS alert'}
+            </button>
           </form>
         )}
       </div>

@@ -1,13 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { smooth } from './motion';
+import { BottomNav } from './components/BottomNav';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { api } from './services/api';
 import { Mine } from './types';
+import { NAV, canAccess, homePath } from './navigation';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { SosEmergencyModal } from './components/SosEmergencyModal';
-import { LandingPage } from './pages/LandingPage';
-import { WorkerDashboard } from './pages/WorkerDashboard';
+import { SignInGate } from './components/SignInGate';
+import { SplashLoader } from './components/SplashLoader';
+import { AccountSetup } from './pages/AccountSetup';
+import { RoleDashboard } from './pages/RoleDashboards';
 import { SafetyReportsPage } from './pages/SafetyReportsPage';
 import { GrievancesPage } from './pages/GrievancesPage';
 import { SosControlRoomPage } from './pages/SosControlRoomPage';
@@ -19,63 +26,122 @@ import { CorrectiveActionsPage } from './pages/CorrectiveActionsPage';
 import { IncidentsPage } from './pages/IncidentsPage';
 import { FutureHealthMonitoringPage } from './pages/FutureHealthMonitoringPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { AttendancePage } from './pages/AttendancePage';
+import { EscalationsPage } from './pages/EscalationsPage';
+import { AdminMinesPage } from './pages/admin/AdminMinesPage';
+import { MineDetailPage } from './pages/admin/MineDetailPage';
+import { AdminPeoplePage } from './pages/admin/AdminPeoplePage';
 
-const AppLayout: React.FC = () => {
+const AppShell: React.FC = () => {
   const location = useLocation();
+  const { user } = useAuth();
   const [mines, setMines] = useState<Mine[]>([]);
   const [isSosOpen, setIsSosOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     api.getMines().then(setMines).catch(console.error);
-  }, []);
+  }, [user?.id]);
 
-  const isLandingPage = location.pathname === '/';
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  const openSos = () => setIsSosOpen(true);
+
+  const pages: Record<string, React.ReactElement> = {
+    '/dashboard': <RoleDashboard onOpenSos={openSos} mines={mines} />,
+    '/attendance': <AttendancePage mines={mines} />,
+    '/safety-reports': <SafetyReportsPage mines={mines} />,
+    '/incidents': <IncidentsPage mines={mines} />,
+    '/inspections': <InspectionsPage mines={mines} />,
+    '/corrective-actions': <CorrectiveActionsPage />,
+    '/sos-control': <SosControlRoomPage onOpenSos={openSos} />,
+    '/escalations': <EscalationsPage />,
+    '/grievances': <GrievancesPage mines={mines} />,
+    '/recognition': <RecognitionPage />,
+    '/future-health': <FutureHealthMonitoringPage />,
+    '/compliance': <ComplianceDashboard mines={mines} />,
+    '/corporate': <ComplianceDashboard mines={mines} />,
+    '/audit-verification': <AuditVerificationPage />,
+    '/admin/mines': <AdminMinesPage />,
+    '/admin/people': <AdminPeoplePage />,
+  };
+  const home = homePath(user);
+  const hasTabs = !!user?.role; // phones get a bottom tab bar; admin-only accounts keep the menu button
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
-      <Navbar onOpenSos={() => setIsSosOpen(true)} />
+    <div className="h-[100dvh] flex flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+      <Navbar
+        onOpenSos={user?.role ? openSos : undefined}
+        onOpenMobileNav={() => setIsMobileNavOpen(true)}
+        hasBottomNav={hasTabs}
+      />
 
-      <div className="flex-1 flex overflow-hidden">
-        {!isLandingPage && <Sidebar />}
+      <div className="flex-1 min-h-0 flex">
+        <Sidebar variant="desktop" />
 
-        <main className={`flex-1 overflow-y-auto ${isLandingPage ? '' : 'p-4 lg:p-8 max-w-7xl mx-auto w-full'}`}>
-          <Routes>
-            <Route path="/" element={<LandingPage onOpenSos={() => setIsSosOpen(true)} />} />
-            <Route path="/dashboard" element={<WorkerDashboard onOpenSos={() => setIsSosOpen(true)} mines={mines} />} />
-            <Route path="/safety-reports" element={<SafetyReportsPage mines={mines} />} />
-            <Route path="/grievances" element={<GrievancesPage mines={mines} />} />
-            <Route path="/sos-control" element={<SosControlRoomPage onOpenSos={() => setIsSosOpen(true)} />} />
-            <Route path="/compliance" element={<ComplianceDashboard mines={mines} />} />
-            <Route path="/corporate" element={<ComplianceDashboard mines={mines} />} />
-            <Route path="/audit-verification" element={<AuditVerificationPage />} />
-            <Route path="/recognition" element={<RecognitionPage />} />
-            <Route path="/inspections" element={<InspectionsPage mines={mines} />} />
-            <Route path="/corrective-actions" element={<CorrectiveActionsPage />} />
-            <Route path="/incidents" element={<IncidentsPage mines={mines} />} />
-            <Route path="/future-health" element={<FutureHealthMonitoringPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+        <main ref={mainRef} className="flex-1 min-w-0 overflow-y-auto">
+          <div className="px-4 py-6 lg:px-10 lg:py-8 max-w-6xl mx-auto w-full">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, transition: { duration: 0.08 } }}
+                transition={smooth}
+              >
+            <Routes location={location}>
+              {NAV.map((item) => (
+                <Route
+                  key={item.to}
+                  path={item.to}
+                  element={canAccess(user, item) ? pages[item.to] : <Navigate to={home} replace />}
+                />
+              ))}
+              <Route
+                path="/admin/mines/:id"
+                element={user?.isAdmin ? <MineDetailPage /> : <Navigate to={home} replace />}
+              />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="*" element={<Navigate to={home} replace />} />
+            </Routes>
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </main>
       </div>
 
-      <SosEmergencyModal
-        isOpen={isSosOpen}
-        onClose={() => setIsSosOpen(false)}
-        mines={mines}
-      />
+      {hasTabs && <BottomNav onOpenSos={openSos} onOpenMore={() => setIsMobileNavOpen(true)} />}
+
+      <Sidebar variant="mobile" isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} />
+
+      <SosEmergencyModal isOpen={isSosOpen} onClose={() => setIsSosOpen(false)} mines={mines} />
     </div>
   );
 };
 
-export const App: React.FC = () => {
-  return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppLayout />
-      </BrowserRouter>
-    </AuthProvider>
-  );
+const AppGate: React.FC = () => {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <SplashLoader />;
+  if (!user) return <SignInGate />;
+  if (user.status !== 'APPROVED') return <AccountSetup />;
+  return <AppShell />;
 };
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+export const App: React.FC = () => (
+  <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+    <MotionConfig reducedMotion="user">
+      <AuthProvider>
+        <BrowserRouter>
+          <AppGate />
+        </BrowserRouter>
+      </AuthProvider>
+    </MotionConfig>
+  </GoogleOAuthProvider>
+);
 
 export default App;

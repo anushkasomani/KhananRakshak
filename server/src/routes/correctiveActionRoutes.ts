@@ -1,10 +1,9 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { optionalAuthenticate, AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest, requireLevel, actorRole } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/corrective-actions
 router.get('/', async (req, res) => {
@@ -33,7 +32,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/corrective-actions
-router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { issueId, issueType, actionRequired, responsiblePerson, deadline, priority, evidence } = req.body;
 
@@ -62,7 +61,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       recordType: 'CORRECTIVE_ACTION',
       recordId: action.id,
       action: 'CREATED',
-      performedByRole: req.user ? req.user.role : 'SAFETY_OFFICER',
+      performedByRole: actorRole(req),
       data: {
         id: action.id,
         issueId: action.issueId,
@@ -80,7 +79,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
 });
 
 // PATCH /api/corrective-actions/:id
-router.patch('/:id', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/:id', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, evidence, verifiedBy } = req.body;
     const actId = String(req.params.id);
@@ -102,7 +101,7 @@ router.patch('/:id', optionalAuthenticate, async (req: AuthenticatedRequest, res
       recordType: 'CORRECTIVE_ACTION',
       recordId: actId,
       action: status === 'COMPLETED' ? 'RESOLVED' : 'STATUS_CHANGED',
-      performedByRole: req.user ? req.user.role : 'SUPERVISOR',
+      performedByRole: actorRole(req, 'SUPERVISOR'),
       data: {
         id: actId,
         newStatus: status,

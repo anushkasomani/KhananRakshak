@@ -1,7 +1,6 @@
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../db';
 
-const prisma = new PrismaClient();
 
 export interface AuditPayload {
   recordType: 'SAFETY_REPORT' | 'GRIEVANCE' | 'INSPECTION' | 'CORRECTIVE_ACTION' | 'SOS_ALERT' | 'INCIDENT';

@@ -1,120 +1,57 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Role } from '../types';
-import { api } from '../services/api';
+import { api, TOKEN_KEY } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
-  role: Role;
-  token: string | null;
+  role: Role | null;
   isLoading: boolean;
-  demoUsers: User[];
-  login: (email: string, pass: string) => Promise<void>;
-  switchRole: (role: Role, email?: string) => Promise<void>;
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('minesafe_token'));
-  const [demoUsers, setDemoUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [user, setUserState] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const fetchDemoUsers = async () => {
-    try {
-      const users = await api.getDemoUsers();
-      setDemoUsers(users);
-    } catch (e) {
-      console.error('Error fetching demo users:', e);
-    }
-  };
-
-  const refreshUser = async () => {
-    try {
-      if (token) {
-        const u = await api.getMe();
-        setUser(u);
-      }
-    } catch (e) {
-      console.warn('Session expired or invalid token');
-      // If failed, auto-login as Worker for immediate seamless demo
-      await autoDemoLogin();
-    }
-  };
-
-  const autoDemoLogin = async () => {
-    try {
-      const res = await api.switchRole('WORKER');
-      localStorage.setItem('minesafe_token', res.token);
-      setToken(res.token);
-      setUser(res.user);
-    } catch (e) {
-      console.error('Auto login error:', e);
-    }
-  };
-
-  useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
-      await fetchDemoUsers();
-      if (token) {
-        try {
-          const u = await api.getMe();
-          setUser(u);
-        } catch {
-          await autoDemoLogin();
-        }
-      } else {
-        await autoDemoLogin();
-      }
-      setIsLoading(false);
-    };
-    init();
+  const logout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    setUserState(null);
   }, []);
 
-  const login = async (email: string, pass: string) => {
-    const res = await api.login(email, pass);
-    localStorage.setItem('minesafe_token', res.token);
-    setToken(res.token);
-    setUser(res.user);
-  };
-
-  const switchRole = async (targetRole: Role, email?: string) => {
-    setIsLoading(true);
+  const refreshUser = useCallback(async () => {
+    if (!localStorage.getItem(TOKEN_KEY)) return;
     try {
-      const res = await api.switchRole(targetRole, email);
-      localStorage.setItem('minesafe_token', res.token);
-      setToken(res.token);
-      setUser(res.user);
-    } catch (e) {
-      console.error('Failed to switch role:', e);
-    } finally {
-      setIsLoading(false);
+      setUserState(await api.getMe());
+    } catch {
+      logout();
     }
-  };
+  }, [logout]);
 
-  const logout = () => {
-    localStorage.removeItem('minesafe_token');
-    setToken(null);
-    setUser(null);
-  };
+  useEffect(() => {
+    refreshUser().finally(() => setIsLoading(false));
+  }, [refreshUser]);
 
-  const currentRole: Role = user?.role || 'WORKER';
+  const googleLogin = async (credential: string) => {
+    const res = await api.googleLogin(credential);
+    localStorage.setItem(TOKEN_KEY, res.token);
+    setUserState(res.user);
+  };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        role: currentRole,
-        token,
+        role: user?.role ?? null,
         isLoading,
-        demoUsers,
-        login,
-        switchRole,
+        googleLogin,
         logout,
         refreshUser,
+        setUser: setUserState,
       }}
     >
       {children}

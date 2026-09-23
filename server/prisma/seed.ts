@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { AuditService } from '../src/services/auditService';
+import { indiaDate } from '../src/geo';
 
 const prisma = new PrismaClient();
 
@@ -8,6 +9,8 @@ async function main() {
   console.log('Seeding CoalGuard / MineSafe database...');
 
   // Clear existing
+  await prisma.escalation.deleteMany();
+  await prisma.attendance.deleteMany();
   await prisma.userBadge.deleteMany();
   await prisma.recognitionPoint.deleteMany();
   await prisma.notification.deleteMany();
@@ -27,6 +30,10 @@ async function main() {
   const dhanbad = await prisma.mine.create({
     data: {
       code: 'MINE-DHN-01',
+      locality: 'Dhanbad',
+      latitude: 23.7957,
+      longitude: 86.4304,
+      radiusMeters: 1200,
       name: 'Dhanbad Central Underground Colliery',
       region: 'Jharkhand Coal Belt',
       state: 'Jharkhand',
@@ -48,6 +55,10 @@ async function main() {
   const eastern = await prisma.mine.create({
     data: {
       code: 'MINE-ECL-04',
+      locality: 'Raniganj',
+      latitude: 23.6150,
+      longitude: 87.1150,
+      radiusMeters: 1000,
       name: 'Eastern Raniganj Seam Pit 4',
       region: 'Eastern Coalfields',
       state: 'West Bengal',
@@ -68,6 +79,10 @@ async function main() {
   const korba = await prisma.mine.create({
     data: {
       code: 'MINE-SECL-02',
+      locality: 'Korba',
+      latitude: 22.3595,
+      longitude: 82.7501,
+      radiusMeters: 1500,
       name: 'Korba Deep Underground Complex',
       region: 'South Eastern Coalfields',
       state: 'Chhattisgarh',
@@ -87,6 +102,10 @@ async function main() {
   const singrauli = await prisma.mine.create({
     data: {
       code: 'MINE-NCL-09',
+      locality: 'Singrauli',
+      latitude: 24.1997,
+      longitude: 82.6750,
+      radiusMeters: 2000,
       name: 'Singrauli OpenCast Basin',
       region: 'Northern Coalfields',
       state: 'Madhya Pradesh',
@@ -106,6 +125,10 @@ async function main() {
   const jharia = await prisma.mine.create({
     data: {
       code: 'MINE-BCCL-07',
+      locality: 'Jharia',
+      latitude: 23.7470,
+      longitude: 86.4150,
+      radiusMeters: 900,
       name: 'Central Jharia Seam 9 Colliery',
       region: 'Bharat Coking Coal',
       state: 'Jharkhand',
@@ -122,80 +145,76 @@ async function main() {
     include: { zones: true }
   });
 
-  // 2. Users (all 6 roles with hashed passwords: "password123")
+  // 2. Users: one per hierarchy level at Dhanbad, plus a pending registration to review.
+  // Seed accounts use password "password123" via /api/auth/login; real users sign in with Google.
   const pw = await bcrypt.hash('password123', 10);
+  const approved = { passwordHash: pw, status: 'APPROVED', reviewedAt: new Date() };
 
   const worker = await prisma.user.create({
-    data: {
-      email: 'worker@minesafe.gov',
-      name: 'Ramesh Kumar',
-      passwordHash: pw,
-      role: 'WORKER',
-      badgeNumber: 'W-4109',
-      mineId: dhanbad.id,
-      department: 'Underground Extraction Crew 4',
-      points: 75,
-    }
+    data: { ...approved, email: 'worker@minesafe.gov', name: 'Ramesh Kumar', role: 'WORKER', trade: 'DRILLER', phone: '+91 98350 10001', badgeNumber: 'W-4109', mineId: dhanbad.id, department: 'Underground Extraction Crew 4', points: 75 }
+  });
+  await prisma.user.createMany({
+    data: [
+      { ...approved, email: 'sunita.electrician@minesafe.gov', name: 'Sunita Devi', role: 'WORKER', trade: 'ELECTRICIAN', phone: '+91 98350 10002', badgeNumber: 'W-4120', mineId: dhanbad.id, points: 20 },
+      { ...approved, email: 'arjun.operator@minesafe.gov', name: 'Arjun Mahto', role: 'WORKER', trade: 'OPERATOR', phone: '+91 98350 10003', badgeNumber: 'W-4133', mineId: dhanbad.id },
+      { ...approved, email: 'korba.worker@minesafe.gov', name: 'Deepak Sahu', role: 'WORKER', trade: 'FITTER', phone: '+91 98350 20001', badgeNumber: 'W-7702', mineId: korba.id },
+      { ...approved, email: 'korba.supervisor@minesafe.gov', name: 'Anil Patel', role: 'SUPERVISOR', phone: '+91 98350 20002', badgeNumber: 'SV-31', mineId: korba.id },
+    ]
+  });
+  await prisma.user.create({
+    data: { passwordHash: pw, email: 'vikas.pending@minesafe.gov', name: 'Vikas Yadav', role: 'WORKER', trade: 'BLASTER', phone: '+91 98350 10099', badgeNumber: 'W-4188', mineId: dhanbad.id, status: 'PENDING' }
   });
 
+  const supervisor = await prisma.user.create({
+    data: { ...approved, email: 'supervisor@minesafe.gov', name: 'Mohan Das', role: 'SUPERVISOR', phone: '+91 98350 10010', badgeNumber: 'SV-12', mineId: dhanbad.id, department: 'Shift A, Section B-12' }
+  });
   const safetyOfficer = await prisma.user.create({
-    data: {
-      email: 'safety@minesafe.gov',
-      name: 'Priya Sharma',
-      passwordHash: pw,
-      role: 'SAFETY_OFFICER',
-      badgeNumber: 'SO-104',
-      mineId: dhanbad.id,
-      department: 'Mine Safety & Hazard Prevention Cell',
-      points: 210,
-    }
+    data: { ...approved, email: 'safety@minesafe.gov', name: 'Priya Sharma', role: 'OFFICER', officerType: 'SAFETY', phone: '+91 98350 10020', badgeNumber: 'SO-104', mineId: dhanbad.id, department: 'Mine Safety Cell', points: 210 }
   });
-
+  await prisma.user.create({
+    data: { ...approved, email: 'ventilation@minesafe.gov', name: 'Imran Khan', role: 'OFFICER', officerType: 'VENTILATION', phone: '+91 98350 10021', badgeNumber: 'VO-22', mineId: dhanbad.id }
+  });
   const mineManager = await prisma.user.create({
-    data: {
-      email: 'manager@minesafe.gov',
-      name: 'Rajesh Verma',
-      passwordHash: pw,
-      role: 'MINE_MANAGER',
-      badgeNumber: 'MM-01',
-      mineId: dhanbad.id,
-      department: 'Colliery Management Operations',
-      points: 320,
-    }
+    data: { ...approved, email: 'manager@minesafe.gov', name: 'Rajesh Verma', role: 'MINE_MANAGER', phone: '+91 98350 10030', badgeNumber: 'MM-01', mineId: dhanbad.id }
   });
-
-  const corporate = await prisma.user.create({
-    data: {
-      email: 'corporate@minesafe.gov',
-      name: 'Ananya Sen',
-      passwordHash: pw,
-      role: 'CORPORATE_ADMIN',
-      badgeNumber: 'CORP-88',
-      department: 'Executive Safety, ESG & Board Governance',
-    }
+  await prisma.user.create({
+    data: { ...approved, email: 'project@minesafe.gov', name: 'Kavita Rao', role: 'PROJECT_MANAGER', phone: '+91 98350 10040', badgeNumber: 'PM-05', mineId: dhanbad.id }
   });
-
   const regulator = await prisma.user.create({
-    data: {
-      email: 'regulator@minesafe.gov',
-      name: 'Dr. Vikramaditya Singh',
-      passwordHash: pw,
-      role: 'REGULATOR',
-      badgeNumber: 'DGMS-NZ-402',
-      department: 'Directorate General of Mines Safety (DGMS)',
-    }
+    data: { ...approved, email: 'dgms@minesafe.gov', name: 'Dr. Vikramaditya Singh', role: 'DGMS', phone: '+91 98350 10050', badgeNumber: 'DGMS-NZ-402', department: 'Directorate General of Mines Safety' }
+  });
+  await prisma.user.create({
+    data: { ...approved, email: 'admin@minesafe.gov', name: 'System Admin', isAdmin: true }
   });
 
-  const admin = await prisma.user.create({
-    data: {
-      email: 'admin@minesafe.gov',
-      name: 'Suresh Nambiar',
-      passwordHash: pw,
-      role: 'SYSTEM_ADMIN',
-      badgeNumber: 'SYS-001',
-      department: 'Enterprise IT & Cryptographic Systems',
+  // Attendance: the last 7 days at Dhanbad, with a few people absent each day (today Arjun and Imran are out).
+  const dhanbadStaff = await prisma.user.findMany({ where: { mineId: dhanbad.id, status: 'APPROVED' }, orderBy: { email: 'asc' } });
+  const absentToday = new Set(['arjun.operator@minesafe.gov', 'ventilation@minesafe.gov', 'project@minesafe.gov']);
+  const attendanceRows = [];
+  for (let daysAgo = 6; daysAgo >= 0; daysAgo--) {
+    const shiftStart = new Date(Date.now() - daysAgo * 86400000);
+    const date = indiaDate(shiftStart);
+    for (const [i, person] of dhanbadStaff.entries()) {
+      const absent = daysAgo === 0 ? absentToday.has(person.email) : (i + daysAgo) % 5 === 0;
+      if (absent) continue;
+      const checkInAt = new Date(`${date}T06:${String(40 + ((i * 7 + daysAgo) % 20)).padStart(2, '0')}:00+05:30`);
+      if (checkInAt > new Date()) continue;
+      const offset = 0.001 * ((i % 5) - 2); // up to ~220 m from the pin, inside the 1.2 km radius
+      attendanceRows.push({
+        userId: person.id,
+        mineId: dhanbad.id,
+        date,
+        checkInAt,
+        checkInLat: dhanbad.latitude! + offset,
+        checkInLng: dhanbad.longitude! - offset,
+        checkInAccuracy: 12 + (i % 4) * 6,
+        checkInDistance: Math.round(Math.abs(offset) * 111000 * Math.SQRT2),
+        checkOutAt: daysAgo > 0 ? new Date(checkInAt.getTime() + 8.5 * 3600000) : null,
+        syncedLate: i === 1 && daysAgo === 2,
+      });
     }
-  });
+  }
+  await prisma.attendance.createMany({ data: attendanceRows });
 
   // 3. Badges for Worker
   await prisma.userBadge.createMany({
@@ -307,7 +326,8 @@ async function main() {
   await prisma.sosAlert.create({
     data: {
       id: 'SOS-2026-90412',
-      workerIdentifier: 'WORKER-B4109',
+      workerIdentifier: 'Ramesh Kumar (W-4109)',
+      triggeredById: worker.id,
       mineId: dhanbad.id,
       zoneId: dhanbad.zones[0].id,
       emergencyType: 'ACCIDENT',
@@ -355,6 +375,36 @@ async function main() {
     }
   });
 
+  // 8b. Assigned inspections: one due, one waiting for approval, one sent back, one overdue at Korba
+  const arjun = await prisma.user.findUniqueOrThrow({ where: { email: 'arjun.operator@minesafe.gov' } });
+  const imran = await prisma.user.findUniqueOrThrow({ where: { email: 'ventilation@minesafe.gov' } });
+  const anil = await prisma.user.findUniqueOrThrow({ where: { email: 'korba.supervisor@minesafe.gov' } });
+  const admin = { assignedByName: 'System Admin', checklistData: '[]', findings: '' };
+  await prisma.inspection.createMany({
+    data: [
+      {
+        ...admin, id: 'INS-2026-00102', mineId: dhanbad.id, inspectionType: 'ROOF_SUPPORT_CHECK', title: 'Roof bolts, Section B-12',
+        inspectorName: supervisor.name, assignedToId: supervisor.id, deadline: new Date(Date.now() + 86400000), status: 'SCHEDULED',
+      },
+      {
+        ...admin, id: 'INS-2026-00098', mineId: dhanbad.id, inspectionType: 'VENTILATION_AUDIT', title: 'Main fan pressure log',
+        inspectorName: imran.name, assignedToId: imran.id, deadline: new Date(Date.now() - 3600000 * 6), status: 'SUBMITTED',
+        outcome: 'NOT_DONE', submissionNote: 'Fan house was locked. The key is with the electrical department until tomorrow.',
+        findings: 'Fan house was locked.', submittedAt: new Date(Date.now() - 3600000 * 2),
+      },
+      {
+        ...admin, id: 'INS-2026-00095', mineId: dhanbad.id, inspectionType: 'MACHINERY_CHECK', title: 'Conveyor 3 belt guards',
+        inspectorName: arjun.name, assignedToId: arjun.id, deadline: new Date(Date.now() + 86400000 * 2), status: 'RETURNED',
+        outcome: 'DONE', submittedAt: new Date(Date.now() - 86400000), reviewedById: supervisor.id, reviewedByName: supervisor.name,
+        reviewedAt: new Date(Date.now() - 3600000 * 20), reviewNote: 'Photo does not show the tail-end guard. Retake it from the walkway.',
+      },
+      {
+        ...admin, id: 'INS-2026-00090', mineId: korba.id, inspectionType: 'FIRE_SAFETY', title: 'Extinguishers at pit bottom',
+        inspectorName: anil.name, assignedToId: anil.id, deadline: new Date(Date.now() - 86400000 * 2), status: 'SCHEDULED',
+      },
+    ],
+  });
+
   // 9. Corrective Actions (including ACT-2026-00042)
   await prisma.correctiveAction.create({
     data: {
@@ -396,9 +446,28 @@ async function main() {
       immediateResponse: 'Automated electric interlock tripped power to shearer. Auxiliary booster duct deployed within 4 minutes.',
       rootCause: 'Geological fault fissure release combined with temporary brattice flutter.',
       correctiveActionId: 'ACT-2026-00042',
+      reportedById: supervisor.id,
+      reportedByName: supervisor.name,
       status: 'CONTAINED',
       createdAt: new Date(Date.now() - 86400000 * 5),
     }
+  });
+
+  // 10b. Escalations: the live SOS went to the safety officer (acknowledged); the methane spike waits on the manager.
+  await prisma.escalation.createMany({
+    data: [
+      {
+        recordType: 'SOS', recordId: 'SOS-2026-90412', mineId: dhanbad.id, summary: `SOS: Accident · ${dhanbad.zones[0].name}`, severe: true,
+        fromUserId: supervisor.id, toRole: 'OFFICER', toOfficerType: 'SAFETY', reason: 'Worker trapped by fallen roof bolt plate, needs rescue team.',
+        recipientCount: 1, callStatus: 'NOT_CONFIGURED', status: 'ACKNOWLEDGED', acknowledgedById: safetyOfficer.id,
+        acknowledgedByName: safetyOfficer.name, acknowledgedAt: new Date(Date.now() - 1000 * 60 * 12), createdAt: new Date(Date.now() - 1000 * 60 * 13),
+      },
+      {
+        recordType: 'INCIDENT', recordId: 'INC-2026-00015', mineId: dhanbad.id, summary: 'Methane spike · Longwall Face 4, Section B-12', severe: false,
+        fromUserId: supervisor.id, toRole: 'MINE_MANAGER', reason: 'Second methane spike this month at the same tailgate. Needs a ventilation review.',
+        recipientCount: 1, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3),
+      },
+    ],
   });
 
   // 11. Announcements
@@ -441,7 +510,7 @@ async function main() {
     recordType: 'SAFETY_REPORT',
     recordId: report1.id,
     action: 'STATUS_CHANGED',
-    performedByRole: 'SAFETY_OFFICER',
+    performedByRole: 'OFFICER',
     data: {
       id: report1.id,
       status: 'ASSIGNED',
@@ -468,7 +537,7 @@ async function main() {
     recordType: 'GRIEVANCE',
     recordId: grievance1.id,
     action: 'ESCALATED',
-    performedByRole: 'SAFETY_OFFICER',
+    performedByRole: 'OFFICER',
     data: {
       id: grievance1.id,
       escalatedFrom: 'MINE_OFFICER',
@@ -481,7 +550,7 @@ async function main() {
     recordType: 'INSPECTION',
     recordId: inspection1.id,
     action: 'CREATED',
-    performedByRole: 'REGULATOR',
+    performedByRole: 'DGMS',
     data: {
       id: inspection1.id,
       mine: dhanbad.name,
@@ -495,7 +564,7 @@ async function main() {
     recordType: 'INSPECTION',
     recordId: inspection1.id,
     action: 'VERIFIED',
-    performedByRole: 'REGULATOR',
+    performedByRole: 'DGMS',
     data: {
       id: inspection1.id,
       verificationStatus: 'DGMS_SEALED',

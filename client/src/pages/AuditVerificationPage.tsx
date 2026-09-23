@@ -1,50 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  FileKey2,
-  ShieldCheck,
-  ShieldAlert,
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCcw,
-  Cpu,
-  Layers,
-  Link as LinkIcon,
-  Copy,
-  Check,
-} from 'lucide-react';
+import { Check, X, Copy } from 'lucide-react';
 import { api } from '../services/api';
 import { AuditBlock } from '../types';
+import { PageHeader, Section, Empty, titleCase, ListSkeleton } from '../components/ui';
 
 export const AuditVerificationPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [blocks, setBlocks] = useState<AuditBlock[]>([]);
-  const [searchId, setSearchId] = useState(searchParams.get('recordId') || 'INS-2026-00071');
-  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [query, setQuery] = useState(searchParams.get('recordId') || '');
+  const [result, setResult] = useState<any>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [copiedHash, setCopiedHash] = useState<string | null>(null);
-
-  // Tamper Simulation State
-  const [tamperStatus, setTamperStatus] = useState<string | null>(null);
-  const [isTampering, setIsTampering] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const loadBlocks = async () => {
     try {
       const data = await api.getAuditBlocks();
-      setBlocks(data);
+      setBlocks(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Error fetching audit blocks:', e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleVerify = async (recordIdToVerify?: string) => {
-    const id = recordIdToVerify || searchId;
+  const verify = async (id: string) => {
     if (!id.trim()) return;
     setIsVerifying(true);
     try {
-      const res = await api.verifyRecordIntegrity(id.trim());
-      setVerificationResult(res);
+      setResult(await api.verifyRecordIntegrity(id.trim()));
     } catch (e) {
       console.error('Verification error:', e);
     } finally {
@@ -54,279 +41,123 @@ export const AuditVerificationPage: React.FC = () => {
 
   useEffect(() => {
     loadBlocks();
-    if (searchId) {
-      handleVerify(searchId);
-    }
+    const recordId = searchParams.get('recordId');
+    if (recordId) verify(recordId);
   }, []);
 
-  const handleCopy = (hash: string) => {
+  const runDemo = async (action: 'tamper' | 'repair') => {
+    setIsBusy(true);
+    try {
+      const res = action === 'tamper' ? await api.simulateTamper(2) : await api.repairAuditChain();
+      setNotice(res.message);
+      await loadBlocks();
+      if (query) await verify(query);
+    } catch (err: any) {
+      setNotice(err.message || 'Something went wrong.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const copy = (hash: string) => {
     navigator.clipboard.writeText(hash);
-    setCopiedHash(hash);
-    setTimeout(() => setCopiedHash(null), 2000);
-  };
-
-  const handleSimulateTamper = async () => {
-    setIsTampering(true);
-    setTamperStatus(null);
-    try {
-      const res = await api.simulateTamper(2);
-      setTamperStatus(res.message);
-      await loadBlocks();
-      await handleVerify();
-    } catch (err: any) {
-      alert(err.message || 'Error simulating tamper');
-    } finally {
-      setIsTampering(false);
-    }
-  };
-
-  const handleRepairChain = async () => {
-    setIsTampering(true);
-    try {
-      const res = await api.repairAuditChain();
-      setTamperStatus(res.message);
-      await loadBlocks();
-      await handleVerify();
-    } catch (err: any) {
-      alert(err.message || 'Error repairing chain');
-    } finally {
-      setIsTampering(false);
-    }
+    setCopied(hash);
+    setTimeout(() => setCopied(null), 1500);
   };
 
   return (
-    <div className="space-y-8 animate-fadeIn">
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-slate-900 border border-emerald-500/40 shadow-glow-emerald/20">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="p-1.5 rounded-lg bg-emerald-950 border border-emerald-500/40 text-emerald-400">
-              <FileKey2 className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-bold text-slate-100">
-              Tamper-Evident Audit Verification Architecture
-            </h1>
-            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
-              USP 3
-            </span>
-          </div>
-          <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-            Every inspection finding, hazard report, corrective action, and grievance is sealed into an immutable
-            SHA-256 cryptographic chain. Test record integrity or simulate unauthorized tampering below.
-          </p>
-          <div className="mt-2 text-[11px] font-mono text-cyan-400">
-            Designation: Tamper-Evident Cryptographic Architecture (Blockchain-Ready Ledger)
-          </div>
-        </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="Audit log"
+        description="Every record is sealed into a SHA-256 hash chain."
+        actions={
+          <>
+            <button disabled={isBusy} onClick={() => runDemo('tamper')} className="btn-secondary">
+              Simulate tamper
+            </button>
+            <button disabled={isBusy} onClick={() => runDemo('repair')} className="btn-secondary">
+              Re-seal
+            </button>
+          </>
+        }
+      />
 
-        {/* Demo Simulation Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleSimulateTamper}
-            disabled={isTampering}
-            className="px-4 py-2 bg-red-950/40 hover:bg-red-900/50 border border-red-500/50 text-red-300 font-bold text-xs rounded-xl transition-all shadow-glow-danger/20 flex items-center gap-1.5"
-            title="Demonstrate how unauthorized database alteration triggers verification failure"
-          >
-            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-            <span>Simulate DB Tamper</span>
-          </button>
+      {notice && <p className="text-sm text-zinc-400">{notice}</p>}
 
-          <button
-            onClick={handleRepairChain}
-            disabled={isTampering}
-            className="px-4 py-2 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/50 text-emerald-300 font-bold text-xs rounded-xl transition-all shadow-glow-emerald/20 flex items-center gap-1.5"
-            title="Restore and re-seal cryptographic chain"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Re-Seal Ledger</span>
-          </button>
-        </div>
-      </div>
-
-      {tamperStatus && (
-        <div className="p-4 rounded-xl bg-slate-900 border border-amber-500/40 text-xs font-mono text-amber-300 flex items-center gap-2 animate-fadeIn">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>{tamperStatus}</span>
-        </div>
-      )}
-
-      {/* Verification Query Tool */}
-      <div className="cyber-card p-6 border-cyan-500/30">
-        <h2 className="text-sm font-mono uppercase tracking-wider text-cyan-400 font-bold mb-3 flex items-center gap-2">
-          <Search className="w-4 h-4" />
-          Inspect & Validate Specific Record Hash
-        </h2>
-
+      <Section title="Verify a record">
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleVerify();
+            verify(query);
           }}
-          className="flex flex-col sm:flex-row gap-2"
+          className="flex gap-2 max-w-xl"
         >
           <input
-            type="text"
-            value={searchId}
-            onChange={(e) => setSearchId(e.target.value)}
-            placeholder="Enter Record ID e.g. INS-2026-00071, SAFE-2026-00124, GRV-2026-8F4A21"
-            className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-cyan-300 uppercase focus:outline-none focus:border-cyan-400"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Record ID, e.g. SAFE-2026-00124"
+            className="input font-mono uppercase placeholder:font-sans placeholder:normal-case"
           />
-          <button
-            type="submit"
-            disabled={isVerifying}
-            className="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-glow-cyan/50"
-          >
-            {isVerifying ? 'Verifying Hashes...' : 'Cryptographic Integrity Check'}
+          <button type="submit" disabled={isVerifying} className="btn-primary shrink-0">
+            {isVerifying ? 'Checking…' : 'Verify'}
           </button>
         </form>
 
-        {/* Preset Sample Quick Links */}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-          <span>Quick Samples:</span>
-          {['INS-2026-00071', 'SAFE-2026-00124', 'GRV-2026-8F4A21'].map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setSearchId(id);
-                handleVerify(id);
-              }}
-              className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-cyan-500/40 text-cyan-400 font-mono"
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Verification Result Display */}
-      {verificationResult && (
-        <div
-          className={`p-6 rounded-2xl border transition-all animate-fadeIn ${
-            verificationResult.verified
-              ? 'bg-emerald-950/20 border-emerald-500/50 shadow-glow-emerald/20'
-              : 'bg-red-950/30 border-red-500/60 shadow-glow-danger/30'
-          }`}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              {verificationResult.verified ? (
-                <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-400 text-emerald-400">
-                  <CheckCircle2 className="w-8 h-8" />
-                </div>
-              ) : (
-                <div className="p-3 rounded-xl bg-red-500/20 border border-red-400 text-red-400 animate-pulse-fast">
-                  <ShieldAlert className="w-8 h-8" />
-                </div>
-              )}
-              <div>
-                <h3 className="text-xl font-bold font-mono tracking-wide">
-                  {verificationResult.verified ? (
-                    <span className="text-emerald-400">✓ Record Integrity Verified</span>
-                  ) : (
-                    <span className="text-red-400">⚠ Integrity Verification Failed</span>
-                  )}
-                </h3>
-                <p className="text-xs text-slate-300">
-                  Target: <span className="font-mono text-cyan-400 font-bold">{verificationResult.recordId}</span>{' '}
-                  • Ledger Length: <span className="font-mono text-slate-100">{verificationResult.chainLength} Blocks</span>
-                </p>
-              </div>
+        {result && (
+          <div className={`mt-4 p-4 max-w-xl ${result.verified ? 'card' : 'card-danger'}`}>
+            <div className="flex items-center gap-2">
+              {result.verified ? <Check className="w-4 h-4 text-emerald-400" /> : <X className="w-4 h-4 text-red-400" />}
+              <p className="text-sm font-medium">{result.verified ? 'Integrity verified' : 'Integrity check failed'}</p>
             </div>
-
-            <div className="text-xs font-mono text-slate-400 text-right">
-              <div>Chain Linkage: {verificationResult.chainIntact ? '100% INTACT' : 'COMPROMISED'}</div>
-              <div className="text-[10px] text-slate-500">Algorithm: SHA-256 Recursive</div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid sm:grid-cols-2 gap-4 text-xs font-mono">
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-slate-500 text-[10px] uppercase">Sealed Block Hash (Current)</div>
-              <div className="text-cyan-400 text-xs break-all">{verificationResult.currentHash || 'N/A'}</div>
-            </div>
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-slate-500 text-[10px] uppercase">Previous Block Link Hash</div>
-              <div className="text-slate-400 text-xs break-all">{verificationResult.previousHash || 'N/A'}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Visual Chained Ledger Block Explorer */}
-      <div className="cyber-card p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-cyan-400" />
-              Cryptographic Audit Chain Block Explorer
-            </h2>
-            <p className="text-xs text-slate-400">
-              Chained ledger blocks with SHA-256 cryptographic linkage: Block[N].prevHash == Block[N-1].currentHash
+            <p className="mt-1 text-xs text-zinc-500">
+              <span className="font-mono">{result.recordId}</span> · chain of {result.chainLength} blocks ·{' '}
+              {result.chainIntact ? 'links intact' : 'chain broken'}
             </p>
+            {result.currentHash && (
+              <p className="mt-3 font-mono text-[11px] text-zinc-400 break-all">{result.currentHash}</p>
+            )}
           </div>
-          <span className="text-xs font-mono text-cyan-400 px-2.5 py-1 rounded bg-slate-950 border border-slate-800">
-            {blocks.length} Sealed Blocks
-          </span>
-        </div>
+        )}
+      </Section>
 
-        <div className="space-y-3">
-          {blocks.map((block) => {
-            return (
-              <div
-                key={block.id}
-                className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-slate-700 transition-all space-y-3"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-black text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800">
-                      BLOCK #{block.blockIndex}
-                    </span>
-                    <span className="font-mono text-xs font-bold text-slate-200">
-                      {block.recordType} [{block.recordId}]
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                      {block.action}
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-mono text-slate-500">
-                    {new Date(block.timestamp).toLocaleString()} • {block.performedByRole}
-                  </span>
-                </div>
-
-                <div className="text-xs text-slate-300 font-sans">
-                  {block.payloadSummary}
-                </div>
-
-                {/* Hashes */}
-                <div className="grid sm:grid-cols-2 gap-2 text-[11px] font-mono bg-slate-900/60 p-2.5 rounded-lg border border-slate-850">
-                  <div className="truncate">
-                    <span className="text-slate-500">Prev Hash: </span>
-                    <span className="text-slate-400">{block.previousHash.substring(0, 16)}...</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="truncate">
-                      <span className="text-slate-500">Current Hash: </span>
-                      <span className="text-cyan-400 font-bold">{block.currentHash.substring(0, 18)}...</span>
-                    </div>
-                    <button
-                      onClick={() => handleCopy(block.currentHash)}
-                      className="p-1 text-slate-500 hover:text-cyan-400"
-                      title="Copy full hash"
-                    >
-                      {copiedHash === block.currentHash ? (
-                        <Check className="w-3 h-3 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3 h-3" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+      <Section title={`Ledger${blocks.length ? ` (${blocks.length} blocks)` : ''}`}>
+        <div className="card divide-y divide-white/[0.05] stagger">
+          {isLoading ? (
+            <ListSkeleton />
+          ) : blocks.length === 0 ? (
+            <Empty>No blocks yet.</Empty>
+          ) : (
+            blocks.map((b) => (
+              <div key={b.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors">
+                <span className="w-8 shrink-0 text-xs text-zinc-600 tabular-nums">#{b.blockIndex}</span>
+                <button
+                  onClick={() => {
+                    setQuery(b.recordId);
+                    verify(b.recordId);
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="text-sm text-zinc-200 truncate">
+                    {titleCase(b.recordType)} {titleCase(b.action).toLowerCase()}
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500 truncate">
+                    <span className="font-mono">{b.recordId}</span> · by {titleCase(b.performedByRole).toLowerCase()} ·{' '}
+                    {new Date(b.timestamp).toLocaleString()}
+                  </p>
+                </button>
+                <button
+                  onClick={() => copy(b.currentHash)}
+                  title="Copy hash"
+                  className="hidden sm:inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-500 hover:text-zinc-200"
+                >
+                  {b.currentHash.substring(0, 10)}
+                  {copied === b.currentHash ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                </button>
               </div>
-            );
-          })}
+            ))
+          )}
         </div>
-      </div>
+      </Section>
     </div>
   );
 };

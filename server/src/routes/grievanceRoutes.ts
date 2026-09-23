@@ -1,11 +1,10 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
-import { optionalAuthenticate, AuthenticatedRequest } from '../middleware/auth';
+import { optionalAuthenticate, AuthenticatedRequest, requireLevel, actorRole } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Helper to generate random grievance tracking ID e.g. GRV-2026-8F4A21
 function generateTrackingCode(): string {
@@ -45,7 +44,7 @@ router.get('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Res
   const sanitized = rawGrievances.map((g) => {
     const isAnonymous = g.anonymityType === 'ANONYMOUS';
     const isCallerOwner = req.user && req.user.id === g.submitterId;
-    const isAuthorizedRegulator = req.user && req.user.role === 'REGULATOR';
+    const isAuthorizedRegulator = req.user && req.user.role === 'DGMS';
 
     let timelineParsed = [];
     try {
@@ -153,7 +152,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       recordType: 'GRIEVANCE',
       recordId: grievance.trackingCode,
       action: 'CREATED',
-      performedByRole: anonymity === 'ANONYMOUS' ? 'ANONYMOUS_WORKER' : (req.user ? req.user.role : 'WORKER'),
+      performedByRole: anonymity === 'ANONYMOUS' ? 'ANONYMOUS_WORKER' : actorRole(req),
       data: {
         trackingCode: grievance.trackingCode,
         category: grievance.category,
@@ -237,7 +236,7 @@ router.post('/:id/escalate', optionalAuthenticate, async (req: AuthenticatedRequ
       recordType: 'GRIEVANCE',
       recordId: grievance.trackingCode,
       action: 'ESCALATED',
-      performedByRole: req.user ? req.user.role : 'SUPERVISOR',
+      performedByRole: actorRole(req, 'SUPERVISOR'),
       data: {
         trackingCode: grievance.trackingCode,
         fromTier: grievance.escalationTier,
@@ -254,7 +253,7 @@ router.post('/:id/escalate', optionalAuthenticate, async (req: AuthenticatedRequ
 });
 
 // POST /api/grievances/:id/respond (Status update or resolution)
-router.post('/:id/respond', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/respond', requireLevel('OFFICER'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, note, assignedInvestigator } = req.body;
     const grievanceId = String(req.params.id);
@@ -297,7 +296,7 @@ router.post('/:id/respond', optionalAuthenticate, async (req: AuthenticatedReque
       recordType: 'GRIEVANCE',
       recordId: grievance.trackingCode,
       action: newStatus === 'RESOLVED' ? 'RESOLVED' : 'STATUS_CHANGED',
-      performedByRole: req.user ? req.user.role : 'OFFICER',
+      performedByRole: actorRole(req, 'OFFICER'),
       data: {
         trackingCode: grievance.trackingCode,
         status: newStatus,

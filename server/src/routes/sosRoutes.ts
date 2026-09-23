@@ -1,10 +1,9 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { optionalAuthenticate, AuthenticatedRequest } from '../middleware/auth';
+import { optionalAuthenticate, AuthenticatedRequest, requireLevel, actorRole, mineScope, canSeeMine } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Helper to generate SOS ID: SOS-2026-XXXXX
 function generateSosId(): string {
@@ -12,10 +11,26 @@ function generateSosId(): string {
   return `SOS-2026-${rand}`;
 }
 
+// Attach the signed-in reporter's name and phone so responders can call back.
+async function withReporters<T extends { triggeredById: string | null }>(alerts: T[]) {
+  const ids = [...new Set(alerts.map((a) => a.triggeredById).filter(Boolean))] as string[];
+  const users = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, phone: true } })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return alerts.map((a) => ({ ...a, reporter: (a.triggeredById && byId.get(a.triggeredById)) || null }));
+}
+
+const scoped = (req: AuthenticatedRequest) => {
+  const scope = mineScope(req);
+  return scope ? { mineId: scope } : {};
+};
+
 // GET /api/sos/active (Control Room Live Feeds)
-router.get('/active', async (_req, res) => {
+router.get('/active', async (req: AuthenticatedRequest, res) => {
   const activeAlerts = await prisma.sosAlert.findMany({
     where: {
+      ...scoped(req),
       status: {
         in: ['ALERT_TRIGGERED', 'ACKNOWLEDGED', 'TEAM_ASSIGNED', 'RESPONDING']
       }
@@ -26,12 +41,13 @@ router.get('/active', async (_req, res) => {
     },
     orderBy: { triggeredAt: 'desc' }
   });
-  return res.json(activeAlerts);
+  return res.json(await withReporters(activeAlerts));
 });
 
 // GET /api/sos/history
-router.get('/history', async (_req, res) => {
+router.get('/history', async (req: AuthenticatedRequest, res) => {
   const allAlerts = await prisma.sosAlert.findMany({
+    where: scoped(req),
     include: {
       mine: { select: { id: true, name: true, code: true } },
       zone: { select: { id: true, name: true, depthLevel: true } }
@@ -39,7 +55,7 @@ router.get('/history', async (_req, res) => {
     orderBy: { triggeredAt: 'desc' },
     take: 30
   });
-  return res.json(allAlerts);
+  return res.json(await withReporters(allAlerts));
 });
 
 // POST /api/sos (Trigger Emergency Alert)
@@ -61,6 +77,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
         zoneId: zoneId || null,
         emergencyType,
         workerIdentifier: ident,
+        triggeredById: req.user?.id || null,
         status: 'ALERT_TRIGGERED',
         responderNotes: locationNotes ? `Location details: ${locationNotes}` : null
       },
@@ -75,7 +92,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       recordType: 'SOS_ALERT',
       recordId: alert.id,
       action: 'CREATED',
-      performedByRole: req.user ? req.user.role : 'WORKER',
+      performedByRole: actorRole(req),
       data: {
         sosId: alert.id,
         emergencyType: alert.emergencyType,
@@ -88,18 +105,17 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
     // Create high-priority broadcast notification
     const officers = await prisma.user.findMany({
       where: {
-        OR: [
-          { role: 'SAFETY_OFFICER' },
-          { role: 'MINE_MANAGER' }
-        ]
+        mineId: alert.mineId,
+        status: 'APPROVED',
+        role: { in: ['SUPERVISOR', 'OFFICER', 'MINE_MANAGER'] }
       }
     });
     for (const officer of officers) {
       await prisma.notification.create({
         data: {
           userId: officer.id,
-          title: `🚨 CRITICAL EMERGENCY SOS: ${alert.id}`,
-          message: `${alert.emergencyType} reported in ${alert.mine.name} (${alert.zone ? alert.zone.name : 'Mine Area'})!`,
+          title: `SOS: ${alert.emergencyType.replace(/_/g, ' ').toLowerCase()}`,
+          message: `${ident} at ${alert.mine.name}${alert.zone ? `, ${alert.zone.name}` : ''}. Open SOS control to respond.`,
           type: 'SOS'
         }
       });
@@ -113,7 +129,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
 });
 
 // PATCH /api/sos/:id/status (Transition Status in Control Room)
-router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/:id/status', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, assignedTeams, responderNotes } = req.body;
     const sosId = String(req.params.id);
@@ -125,6 +141,9 @@ router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedReque
 
     if (!existing) {
       return res.status(404).json({ error: 'SOS alert not found' });
+    }
+    if (!canSeeMine(req, existing.mineId)) {
+      return res.status(403).json({ error: 'This alert is at another mine.' });
     }
 
     const dataToUpdate: any = {
@@ -145,7 +164,7 @@ router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedReque
       recordType: 'SOS_ALERT',
       recordId: sosId,
       action: status === 'RESOLVED' ? 'RESOLVED' : 'STATUS_CHANGED',
-      performedByRole: req.user ? req.user.role : 'CONTROL_ROOM_OPERATOR',
+      performedByRole: actorRole(req, 'CONTROL_ROOM_OPERATOR'),
       data: {
         sosId,
         newStatus: status,
@@ -154,7 +173,7 @@ router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedReque
       }
     });
 
-    return res.json({ updated, auditBlock });
+    return res.json({ updated: (await withReporters([updated]))[0], auditBlock });
   } catch (err: any) {
     console.error('Error updating SOS status:', err);
     return res.status(500).json({ error: err.message || 'Internal server error' });

@@ -1,54 +1,62 @@
 import React, { useState, useEffect } from 'react';
-import {
-  AlertTriangle,
-  PlusCircle,
-  Filter,
-  CheckCircle2,
-  Clock,
-  User,
-  ShieldCheck,
-  MapPin,
-  Image as ImageIcon,
-  Sparkles,
-  ChevronRight,
-} from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { SafetyReport, Mine } from '../types';
 import { StatusPill } from '../components/StatusPill';
 import { TamperProofBadge } from '../components/TamperProofBadge';
+import { PageHeader, Modal, Empty, Field, Segmented, DetailRows, titleCase, shortDate, ListSkeleton } from '../components/ui';
 
 interface SafetyReportsPageProps {
   mines: Mine[];
 }
 
-export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) => {
-  const { user, role } = useAuth();
-  const [reports, setReports] = useState<SafetyReport[]>([]);
-  const [selectedReport, setSelectedReport] = useState<SafetyReport | null>(null);
+const CATEGORIES = [
+  { value: 'PPE', label: 'PPE / respirator' },
+  { value: 'MACHINERY', label: 'Machinery' },
+  { value: 'ELECTRICAL', label: 'Electrical' },
+  { value: 'VENTILATION', label: 'Ventilation' },
+  { value: 'GAS', label: 'Gas / methane' },
+  { value: 'STRUCTURAL', label: 'Roof support' },
+  { value: 'TRANSPORTATION', label: 'Haulage / transport' },
+  { value: 'ENVIRONMENTAL', label: 'Flooding / environmental' },
+];
 
-  // Filter state
+const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+const SEVERITY_DOT: Record<string, string> = {
+  CRITICAL: 'bg-red-400',
+  HIGH: 'bg-orange-400',
+  MEDIUM: 'bg-amber-400',
+  LOW: 'bg-zinc-500',
+};
+
+const emptyForm = (mineId: string) => ({
+  mineId,
+  zoneId: '',
+  category: 'PPE',
+  severity: 'MEDIUM' as string,
+  description: '',
+  immediateActionTaken: '',
+});
+
+export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) => {
+  const { user } = useAuth();
+  const [reports, setReports] = useState<SafetyReport[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selected, setSelected] = useState<SafetyReport | null>(null);
+
   const [filterSeverity, setFilterSeverity] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterMine, setFilterMine] = useState('');
 
-  // Creation Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    mineId: user?.mineId || mines[0]?.id || '',
-    zoneId: '',
-    category: 'PPE',
-    severity: 'HIGH',
-    description: '',
-    immediateActionTaken: '',
-    imageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?auto=format&fit=crop&w=600&q=80',
-  });
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm(user?.mineId || ''));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Review / Status Transition State
-  const [assignedOfficerInput, setAssignedOfficerInput] = useState('');
-  const [correctiveActionInput, setCorrectiveActionInput] = useState('');
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   const loadReports = async () => {
     try {
@@ -57,12 +65,11 @@ export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) =
         status: filterStatus || undefined,
         mineId: filterMine || undefined,
       });
-      setReports(data);
-      if (data.length > 0 && !selectedReport) {
-        setSelectedReport(data[0]);
-      }
+      setReports(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Error fetching safety reports:', e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -70,418 +77,268 @@ export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) =
     loadReports();
   }, [filterSeverity, filterStatus, filterMine]);
 
-  const currentMine = mines.find((m) => m.id === formData.mineId) || mines[0];
-  const zones = currentMine?.zones || [];
+  const formMine = mines.find((m) => m.id === form.mineId);
+  const zones = formMine?.zones || [];
 
-  const handleCreateReport = async (e: React.FormEvent) => {
+  const openCreate = () => {
+    setForm(emptyForm(user?.mineId || ''));
+    setFormError(null);
+    setIsCreateOpen(true);
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.mineId) {
+      setFormError('Select a mine.');
+      return;
+    }
     setIsSubmitting(true);
+    setFormError(null);
     try {
       const res = await api.createSafetyReport({
-        mineId: formData.mineId || mines[0]?.id,
-        zoneId: formData.zoneId || (zones[0]?.id || undefined),
-        category: formData.category,
-        severity: formData.severity,
-        description: formData.description,
-        immediateActionTaken: formData.immediateActionTaken,
-        imageUrl: formData.imageUrl,
+        mineId: form.mineId,
+        zoneId: form.zoneId || undefined,
+        category: form.category,
+        severity: form.severity,
+        description: form.description,
+        immediateActionTaken: form.immediateActionTaken || undefined,
       });
-      setIsModalOpen(false);
-      setFormData({
-        mineId: user?.mineId || mines[0]?.id || '',
-        zoneId: '',
-        category: 'PPE',
-        severity: 'HIGH',
-        description: '',
-        immediateActionTaken: '',
-        imageUrl: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?auto=format&fit=crop&w=600&q=80',
-      });
+      setIsCreateOpen(false);
       await loadReports();
-      setSelectedReport(res.report);
+      setUpdateMessage(null);
+      setSelected(res.report);
     } catch (err: any) {
-      alert(err.message || 'Error submitting report');
+      setFormError(err.message || 'Could not submit the report.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleUpdateStatus = async (reportId: string, targetStatus: string) => {
-    setIsUpdatingStatus(true);
+  const handleStatus = async (id: string, status: string) => {
+    setIsUpdating(true);
+    setUpdateMessage(null);
     try {
-      const res = await api.updateSafetyReportStatus(reportId, {
-        status: targetStatus,
-        assignedOfficer: assignedOfficerInput || user?.name || 'Safety Officer',
-        correctiveActionText: correctiveActionInput || undefined,
+      const res = await api.updateSafetyReportStatus(id, {
+        status,
+        assignedOfficer: selected?.assignedOfficer || user?.name || undefined,
       });
       await loadReports();
-      setSelectedReport(res.updated);
-      setAssignedOfficerInput('');
-      setCorrectiveActionInput('');
-      if (res.awardedPoints > 0) {
-        alert(`Status updated to RESOLVED! Worker awarded +${res.awardedPoints} Safety Points and sealed to Audit Ledger.`);
-      }
+      setSelected(res.updated);
+      setUpdateMessage(
+        res.awardedPoints > 0 ? `Resolved. ${res.awardedPoints} points awarded to the reporter.` : `Marked ${titleCase(status).toLowerCase()}.`
+      );
     } catch (err: any) {
-      alert(err.message || 'Error updating status');
+      setUpdateMessage(err.message || 'Could not update the report.');
     } finally {
-      setIsUpdatingStatus(false);
+      setIsUpdating(false);
     }
   };
 
+  const hasFilters = filterSeverity || filterStatus || filterMine;
+
   return (
-    <div className="space-y-8 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-6 h-6 text-amber-400" />
-            <h1 className="text-2xl font-bold text-slate-100">
-              Colliery Safety Hazard Reports
-            </h1>
-          </div>
-          <p className="text-xs text-slate-400">
-            Digital Incident Logging • Multi-Zone Hazard Classification • Cryptographic Audit Verification
-          </p>
-        </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="Hazards"
+        description={isLoading ? undefined : `${reports.length} ${reports.length === 1 ? 'report' : 'reports'}`}
+        actions={
+          <button onClick={openCreate} className="btn-primary">
+            <Plus className="w-4 h-4" />
+            Report hazard
+          </button>
+        }
+      />
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-glow-amber transition-all flex items-center gap-2"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Report New Safety Hazard</span>
-        </button>
-      </div>
-
-      {/* Filters Bar */}
-      <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-wrap items-center gap-3 text-xs">
-        <Filter className="w-4 h-4 text-slate-400" />
-        <span className="font-semibold text-slate-300">Filters:</span>
-
-        <select
-          value={filterSeverity}
-          onChange={(e) => setFilterSeverity(e.target.value)}
-          className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-        >
-          <option value="">All Severities</option>
-          <option value="LOW">Low</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="HIGH">High</option>
-          <option value="CRITICAL">Critical</option>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)} className="input w-auto">
+          <option value="">Any severity</option>
+          {SEVERITIES.map((s) => (
+            <option key={s} value={s}>
+              {titleCase(s)}
+            </option>
+          ))}
         </select>
-
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-        >
-          <option value="">All Statuses</option>
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="input w-auto">
+          <option value="">Any status</option>
           <option value="SUBMITTED">Submitted</option>
           <option value="ASSIGNED">Assigned</option>
           <option value="RESOLVED">Resolved</option>
         </select>
-
-        <select
-          value={filterMine}
-          onChange={(e) => setFilterMine(e.target.value)}
-          className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-        >
-          <option value="">All Mines</option>
+        <select value={filterMine} onChange={(e) => setFilterMine(e.target.value)} className="input w-auto max-w-[16rem]">
+          <option value="">All mines</option>
           {mines.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
           ))}
         </select>
-
-        {(filterSeverity || filterStatus || filterMine) && (
+        {hasFilters && (
           <button
             onClick={() => {
               setFilterSeverity('');
               setFilterStatus('');
               setFilterMine('');
             }}
-            className="text-slate-400 hover:text-slate-200 underline ml-auto"
+            className="text-sm text-zinc-500 hover:text-zinc-200 px-2"
           >
-            Clear Filters
+            Clear
           </button>
         )}
       </div>
 
-      {/* Main Grid: Reports List & Inspection Detail Panel */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Left Column: Tickets Table */}
-        <div className="lg:col-span-2 cyber-card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-mono uppercase tracking-wider text-slate-300 font-bold">
-              Active Hazard Tickets ({reports.length})
-            </h2>
-            <span className="text-[10px] text-slate-500 font-mono">Sorted by Most Recent</span>
-          </div>
-
-          <div className="divide-y divide-slate-800">
-            {reports.map((r) => {
-              const isSelected = selectedReport?.id === r.id;
-              return (
-                <div
-                  key={r.id}
-                  onClick={() => setSelectedReport(r)}
-                  className={`p-4 rounded-xl cursor-pointer transition-all ${
-                    isSelected
-                      ? 'bg-slate-850 border border-cyan-500/40 shadow-glow-cyan/10'
-                      : 'hover:bg-slate-850/50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-slate-100">
-                        {r.id}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                        {r.category}
-                      </span>
-                      <StatusPill status={r.severity} size="sm" />
-                      <StatusPill status={r.status} size="sm" />
-                    </div>
-                    <TamperProofBadge hash={r.recordHash} recordId={r.id} />
-                  </div>
-
-                  <p className="text-xs text-slate-300 line-clamp-2 mb-2">{r.description}</p>
-
-                  <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-4">
-                    <span>Mine: {r.mine.name}</span>
-                    <span>Zone: {r.zone?.name || 'Main Face'}</span>
-                    <span>{new Date(r.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Column: Detailed Ticket Workstation */}
-        <div>
-          {selectedReport ? (
-            <div className="cyber-card p-6 space-y-5 border-amber-500/30">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div>
-                  <span className="text-[10px] font-mono text-slate-500">HAZARD RECORD</span>
-                  <div className="font-mono text-base font-bold text-slate-100">
-                    {selectedReport.id}
-                  </div>
-                </div>
-                <StatusPill status={selectedReport.status} size="md" />
-              </div>
-
-              {/* Photo Evidence Preview if available */}
-              {selectedReport.imageUrl && (
-                <div className="rounded-xl overflow-hidden border border-slate-800 relative group">
-                  <img
-                    src={selectedReport.imageUrl}
-                    alt="Hazard Evidence"
-                    className="w-full h-36 object-cover"
-                  />
-                  <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-semibold text-slate-200">
-                    Photo Attachment Verified
-                  </div>
-                </div>
-              )}
-
-              {/* Description */}
-              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
-                <div className="text-[10px] font-mono uppercase text-slate-400 font-bold">
-                  Report Description
-                </div>
-                <p className="text-xs text-slate-200 leading-relaxed">
-                  {selectedReport.description}
+      <div className="card divide-y divide-white/[0.05] stagger">
+        {isLoading ? (
+          <ListSkeleton />
+        ) : reports.length === 0 ? (
+          <Empty>{hasFilters ? 'No reports match these filters.' : 'No hazards reported yet.'}</Empty>
+        ) : (
+          reports.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => {
+                setUpdateMessage(null);
+                setSelected(r);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEVERITY_DOT[r.severity] || 'bg-zinc-500'}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-zinc-200 truncate">{r.description}</p>
+                <p className="mt-0.5 text-xs text-zinc-500 truncate">
+                  {titleCase(r.category)} · {r.mine?.name} · {shortDate(r.createdAt)}
                 </p>
               </div>
-
-              {/* Metadata */}
-              <div className="space-y-2 text-xs font-mono">
-                <div className="flex justify-between py-1 border-b border-slate-850">
-                  <span className="text-slate-500">Category:</span>
-                  <span className="text-slate-200">{selectedReport.category}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-850">
-                  <span className="text-slate-500">Severity:</span>
-                  <span className="text-amber-400 font-bold">{selectedReport.severity}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-850">
-                  <span className="text-slate-500">Colliery / Zone:</span>
-                  <span className="text-slate-200">{selectedReport.mine.name}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-850">
-                  <span className="text-slate-500">Immediate Action:</span>
-                  <span className="text-slate-300">{selectedReport.immediateActionTaken || 'None logged'}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-500">Officer In-Charge:</span>
-                  <span className="text-cyan-400 font-bold">{selectedReport.assignedOfficer || 'Unassigned'}</span>
-                </div>
-              </div>
-
-              {/* Safety Officer Review Controls */}
-              {selectedReport.status !== 'RESOLVED' && (
-                <div className="pt-4 border-t border-slate-800 space-y-3">
-                  <div className="text-xs font-bold font-mono uppercase text-slate-300">
-                    Safety Officer Actions
-                  </div>
-
-                  {selectedReport.status === 'SUBMITTED' && (
-                    <button
-                      type="button"
-                      disabled={isUpdatingStatus}
-                      onClick={() => handleUpdateStatus(selectedReport.id, 'ASSIGNED')}
-                      className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-glow-cyan/30"
-                    >
-                      Acknowledge & Assign to Shift Inspector
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={isUpdatingStatus}
-                    onClick={() => handleUpdateStatus(selectedReport.id, 'RESOLVED')}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all shadow-glow-emerald/30 flex items-center justify-center gap-1.5"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Verify, Resolve & Grant Safety Points</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="cyber-card p-12 text-center text-slate-500 text-xs">
-              Select a hazard report to inspect details.
-            </div>
-          )}
-        </div>
+              <StatusPill status={r.status} />
+            </button>
+          ))
+        )}
       </div>
 
-      {/* Creation Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-400" />
-                Report Hazard to DGMS & Mine Safety Cell
-              </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-200">
-                ✕
+      {selected && (
+        <Modal title={selected.id} onClose={() => setSelected(null)}>
+          <div className="p-5 space-y-5">
+            {selected.imageUrl && (
+              <img src={selected.imageUrl} alt="" className="w-full h-44 object-cover rounded-lg border border-white/[0.06]" />
+            )}
+            <p className="text-sm text-zinc-200 leading-relaxed">{selected.description}</p>
+            <DetailRows
+              rows={[
+                ['Status', <StatusPill status={selected.status} />],
+                ['Severity', titleCase(selected.severity)],
+                ['Category', titleCase(selected.category)],
+                ['Mine', selected.mine?.name],
+                ['Zone', selected.zone?.name],
+                ['Action taken', selected.immediateActionTaken],
+                ['Assigned to', selected.assignedOfficer],
+                ['Reported', shortDate(selected.createdAt)],
+                ['Audit record', <TamperProofBadge hash={selected.recordHash} recordId={selected.id} />],
+              ]}
+            />
+
+            {updateMessage && <p className="text-sm text-zinc-400">{updateMessage}</p>}
+
+            {selected.status !== 'RESOLVED' && (
+              <div className="flex gap-2 pt-1">
+                {selected.status === 'SUBMITTED' && (
+                  <button
+                    disabled={isUpdating}
+                    onClick={() => handleStatus(selected.id, 'ASSIGNED')}
+                    className="btn-secondary flex-1"
+                  >
+                    Acknowledge
+                  </button>
+                )}
+                <button
+                  disabled={isUpdating}
+                  onClick={() => handleStatus(selected.id, 'RESOLVED')}
+                  className="btn-primary flex-1"
+                >
+                  Mark resolved
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {isCreateOpen && (
+        <Modal title="Report a hazard" onClose={() => setIsCreateOpen(false)}>
+          <form onSubmit={handleCreate} className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Mine">
+                <select
+                  required
+                  value={form.mineId}
+                  onChange={(e) => setForm({ ...form, mineId: e.target.value, zoneId: '' })}
+                  className="input"
+                >
+                  <option value="" disabled>
+                    Select
+                  </option>
+                  {mines.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Zone">
+                <select value={form.zoneId} onChange={(e) => setForm({ ...form, zoneId: e.target.value })} className="input">
+                  <option value="">Not sure</option>
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <Field label="Category">
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input">
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Severity">
+              <Segmented
+                value={form.severity}
+                onChange={(v) => setForm({ ...form, severity: v })}
+                options={SEVERITIES.map((s) => ({ value: s, label: titleCase(s) }))}
+              />
+            </Field>
+            <Field label="What did you see?">
+              <textarea
+                rows={3}
+                required
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="Equipment, location, what's wrong"
+                className="input resize-none"
+              />
+            </Field>
+            <Field label="Action already taken (optional)">
+              <input
+                type="text"
+                value={form.immediateActionTaken}
+                onChange={(e) => setForm({ ...form, immediateActionTaken: e.target.value })}
+                placeholder="e.g. Tagged out, stopped conveyor"
+                className="input"
+              />
+            </Field>
+            {formError && <p className="text-sm text-red-400">{formError}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setIsCreateOpen(false)} className="btn-secondary">
+                Cancel
+              </button>
+              <button type="submit" disabled={isSubmitting} className="btn-primary">
+                {isSubmitting ? 'Submitting…' : 'Submit'}
               </button>
             </div>
-
-            <form onSubmit={handleCreateReport} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Mine Site</label>
-                  <select
-                    value={formData.mineId}
-                    onChange={(e) => setFormData({ ...formData, mineId: e.target.value, zoneId: '' })}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                  >
-                    {mines.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Mine Area / Zone</label>
-                  <select
-                    value={formData.zoneId}
-                    onChange={(e) => setFormData({ ...formData, zoneId: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                  >
-                    <option value="">Select Zone</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>
-                        {z.name} ({z.depthLevel})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Category</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                  >
-                    <option value="PPE">PPE / SCSR Respirator</option>
-                    <option value="MACHINERY">Heavy Machinery / Conveyors</option>
-                    <option value="ELECTRICAL">Flameproof Switchgear & Cables</option>
-                    <option value="VENTILATION">Ventilation Fan & Brattice</option>
-                    <option value="GAS">Methane / Toxic Gas</option>
-                    <option value="STRUCTURAL">Roof Support / Strata Stability</option>
-                    <option value="TRANSPORTATION">Haulage & Man-Riding Train</option>
-                    <option value="ENVIRONMENTAL">Sump Drainage & Environmental</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Severity</label>
-                  <select
-                    value={formData.severity}
-                    onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                  >
-                    <option value="LOW">Low (Routine maintenance)</option>
-                    <option value="MEDIUM">Medium (Wear & tear)</option>
-                    <option value="HIGH">High (Active hazard)</option>
-                    <option value="CRITICAL">Critical (Imminent danger)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Detailed Description</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="e.g. Cracked seals on 18 emergency SCSR respirators in Box 4, exposing crew to asphyxiation risk..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Immediate Action Taken (Optional)</label>
-                <input
-                  type="text"
-                  value={formData.immediateActionTaken}
-                  onChange={(e) => setFormData({ ...formData, immediateActionTaken: e.target.value })}
-                  placeholder="e.g. Tagged with red hazard placard, notified shift mate"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-slate-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-glow-amber"
-                >
-                  {isSubmitting ? 'Registering...' : 'File Hazard Report'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

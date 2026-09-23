@@ -11,8 +11,16 @@ model User {
   id           String             @id @default(uuid())
   email        String             @unique
   name         String
-  passwordHash String
-  role         String             // WORKER, SAFETY_OFFICER, MINE_MANAGER, CORPORATE_ADMIN, REGULATOR, SYSTEM_ADMIN
+  passwordHash String?
+  googleId     String?            @unique
+  role         String?            // WORKER < SUPERVISOR < OFFICER < MINE_MANAGER < PROJECT_MANAGER < DGMS; null until onboarding
+  officerType  String?            // OFFICER only: SAFETY, VENTILATION, ELECTRICAL, MECHANICAL, SURVEY, BLASTING, OTHER
+  trade        String?            // WORKER only: DRILLER, ELECTRICIAN, FITTER, BLASTER, OPERATOR, HELPER, OTHER
+  phone        String?
+  isAdmin      Boolean            @default(false)
+  status       String             @default("NEW") // NEW, PENDING, APPROVED, REJECTED
+  reviewNote   String?
+  reviewedAt   DateTime?
   badgeNumber  String?
   mineId       String?
   mine         Mine?              @relation(fields: [mineId], references: [id])
@@ -26,6 +34,9 @@ model User {
   pointsHistory RecognitionPoint[]
   badges        UserBadge[]
   notifications Notification[]
+  attendance    Attendance[]
+  escalations   Escalation[]
+  inspectionsAssigned Inspection[] @relation("InspectionAssignee")
 }
 
 model Mine {
@@ -34,6 +45,10 @@ model Mine {
   name            String
   region          String
   state           String
+  locality        String?
+  latitude        Float?
+  longitude       Float?
+  radiusMeters    Int            @default(500) // attendance geofence around the pin
   complianceScore Float          @default(92.5)
   activeWorkers   Int            @default(420)
   status          String         @default("OPERATIONAL") // OPERATIONAL, CAUTION, AUDIT_REQUIRED
@@ -47,6 +62,37 @@ model Mine {
   incidents       Incident[]
   sosAlerts       SosAlert[]
   announcements   Announcement[]
+  attendance      Attendance[]
+  escalations     Escalation[]
+}
+
+// One row per person per day. Check-in is accepted only inside the mine's geofence.
+model Attendance {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  mineId           String
+  mine             Mine      @relation(fields: [mineId], references: [id])
+  date             String    // YYYY-MM-DD, India time
+  checkInAt        DateTime  // when the phone captured the position (or when a supervisor marked it)
+  checkInLat       Float?
+  checkInLng       Float?
+  checkInAccuracy  Float?
+  checkInDistance  Float?    // metres from the mine pin; null for manual marks
+  source           String    @default("GPS") // GPS, MANUAL
+  markedById       String?   // supervisor who marked a MANUAL record
+  markedByName     String?
+  note             String?   // reason for a manual mark
+  checkOutAt       DateTime?
+  checkOutLat      Float?
+  checkOutLng      Float?
+  checkOutDistance Float?
+  syncedLate       Boolean   @default(false) // captured offline and uploaded later
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, date])
+  @@index([mineId, date])
 }
 
 model MineZone {
@@ -104,6 +150,7 @@ model Grievance {
 model SosAlert {
   id               String    @id // e.g. SOS-2026-90412
   workerIdentifier String    // Badge or Anonymous Token
+  triggeredById    String?   // signed-in user who raised it, so responders can call back
   mineId           String
   mine             Mine      @relation(fields: [mineId], references: [id])
   zoneId           String?
@@ -125,11 +172,33 @@ model Inspection {
   checklistData   String    // JSON array of checked criteria
   findings        String
   violationsCount Int       @default(0)
-  deadline        DateTime?
-  status          String    @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, FOLLOW_UP_REQUIRED
+  deadline        DateTime? // due date for assigned inspections
+  status          String    @default("SCHEDULED") // SCHEDULED -> SUBMITTED -> COMPLETED | MISSED, or RETURNED to redo
   recordHash      String?
   createdAt       DateTime  @default(now())
   completedAt     DateTime?
+
+  // Assignment (admin picks a person and a date)
+  title           String?
+  assignedToId    String?
+  assignedTo      User?     @relation("InspectionAssignee", fields: [assignedToId], references: [id])
+  assignedById    String?
+  assignedByName  String?
+
+  // Submission by the assignee, with photo proof
+  outcome         String?   // DONE, NOT_DONE
+  submissionNote  String?
+  photos          String    @default("[]") // JSON array of photo URLs
+  submittedAt     DateTime?
+  submitLat       Float?
+  submitLng       Float?
+  submitDistance  Float?    // metres from the mine pin when submitted
+
+  // Review by anyone above the assignee; one decision is enough
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  reviewNote      String?
 }
 
 model CorrectiveAction {
@@ -159,6 +228,8 @@ model Incident {
   immediateResponse  String
   rootCause          String?
   correctiveActionId String?
+  reportedById       String?
+  reportedByName     String?
   status             String    @default("INVESTIGATING") // INVESTIGATING, CONTAINED, RESOLVED, CLOSED
   createdAt          DateTime  @default(now())
 }
@@ -217,4 +288,30 @@ model Announcement {
   content   String
   priority  String   // NORMAL, HIGH, URGENT
   createdAt DateTime @default(now())
+}
+
+// A supervisor (or anyone above) pushing an incident or SOS up the hierarchy to a chosen level.
+model Escalation {
+  id                 String    @id @default(uuid())
+  recordType         String    // INCIDENT, SOS
+  recordId           String
+  mineId             String
+  mine               Mine      @relation(fields: [mineId], references: [id])
+  summary            String
+  severe             Boolean   @default(false) // critical/fatal incidents and every SOS
+  fromUserId         String
+  fromUser           User      @relation(fields: [fromUserId], references: [id])
+  toRole             String    // OFFICER, MINE_MANAGER, PROJECT_MANAGER, DGMS
+  toOfficerType      String?   // narrows OFFICER to one discipline
+  reason             String
+  recipientCount     Int       @default(0)
+  callStatus         String    @default("NONE") // NONE, NOT_CONFIGURED, PLACED, FAILED
+  status             String    @default("OPEN") // OPEN, ACKNOWLEDGED
+  acknowledgedById   String?
+  acknowledgedByName String?
+  acknowledgedAt     DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([recordType, recordId])
+  @@index([mineId, toRole, status])
 }

@@ -1,17 +1,18 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { optionalAuthenticate, AuthenticatedRequest } from '../middleware/auth';
+import { optionalAuthenticate, AuthenticatedRequest, requireLevel, actorRole, mineScope } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
+import { prisma } from '../db';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET /api/safety-reports
 router.get('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
   const { mineId, severity, status, category, limit } = req.query;
 
   const where: any = {};
-  if (mineId) where.mineId = String(mineId);
+  const scope = mineScope(req);
+  if (scope) where.mineId = scope;
+  else if (mineId) where.mineId = String(mineId);
   if (severity) where.severity = String(severity);
   if (status) where.status = String(status);
   if (category) where.category = String(category);
@@ -76,7 +77,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       recordType: 'SAFETY_REPORT',
       recordId: report.id,
       action: 'CREATED',
-      performedByRole: req.user ? req.user.role : 'ANONYMOUS_WORKER',
+      performedByRole: actorRole(req, 'ANONYMOUS_WORKER'),
       data: {
         id: report.id,
         category: report.category,
@@ -97,7 +98,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
 
     // Notify Safety Officers
     const officers = await prisma.user.findMany({
-      where: { role: 'SAFETY_OFFICER', mineId: report.mineId }
+      where: { role: { in: ['SUPERVISOR', 'OFFICER'] }, mineId: report.mineId, status: 'APPROVED' }
     });
     for (const officer of officers) {
       await prisma.notification.create({
@@ -118,7 +119,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
 });
 
 // PATCH /api/safety-reports/:id/status
-router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/:id/status', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, assignedOfficer, correctiveActionText } = req.body;
     const reportId = String(req.params.id);
@@ -153,7 +154,7 @@ router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedReque
           userId: existing.reporterId,
           pointsAwarded: awardedPoints,
           reason: `Verified ${existing.severity} hazard report: ${existing.id} (${existing.category})`,
-          verifiedBy: req.user ? `${req.user.name} (${req.user.role})` : 'Safety Officer'
+          verifiedBy: req.user!.name
         }
       });
       await prisma.safetyReport.update({
@@ -175,7 +176,7 @@ router.patch('/:id/status', optionalAuthenticate, async (req: AuthenticatedReque
       recordType: 'SAFETY_REPORT',
       recordId: reportId,
       action: status === 'RESOLVED' ? 'RESOLVED' : 'STATUS_CHANGED',
-      performedByRole: req.user ? req.user.role : 'SAFETY_OFFICER',
+      performedByRole: actorRole(req),
       data: {
         id: reportId,
         oldStatus: existing.status,

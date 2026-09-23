@@ -1,22 +1,36 @@
-export type Role =
-  | 'WORKER'
-  | 'SAFETY_OFFICER'
-  | 'MINE_MANAGER'
-  | 'CORPORATE_ADMIN'
-  | 'REGULATOR'
-  | 'SYSTEM_ADMIN';
+export type Role = 'WORKER' | 'SUPERVISOR' | 'OFFICER' | 'MINE_MANAGER' | 'PROJECT_MANAGER' | 'DGMS';
+
+export type UserStatus = 'NEW' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: Role;
-  badgeNumber?: string;
-  mineId?: string;
-  department?: string;
+  role: Role | null;
+  officerType?: string | null;
+  trade?: string | null;
+  phone?: string | null;
+  isAdmin: boolean;
+  status: UserStatus;
+  reviewNote?: string | null;
+  badgeNumber?: string | null;
+  mineId?: string | null;
+  department?: string | null;
   points: number;
-  mine?: Mine;
+  createdAt?: string;
+  mine?: Pick<Mine, 'id' | 'name' | 'code' | 'locality' | 'state'> | null;
   badges?: UserBadge[];
+}
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  role: Role | null;
+  officerType?: string | null;
+  trade?: string | null;
+  badgeNumber?: string | null;
 }
 
 export interface MineZone {
@@ -33,10 +47,16 @@ export interface Mine {
   name: string;
   region: string;
   state: string;
+  locality?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  radiusMeters: number;
   complianceScore: number;
   activeWorkers: number;
   status: 'OPERATIONAL' | 'CAUTION' | 'AUDIT_REQUIRED';
   zones?: MineZone[];
+  staff?: Partial<Record<Role, number>>;
+  users?: StaffMember[];
 }
 
 export interface SafetyReport {
@@ -112,6 +132,8 @@ export interface SosAlert {
   responderNotes?: string | null;
   triggeredAt: string;
   resolvedAt?: string | null;
+  triggeredById?: string | null;
+  reporter?: { id: string; name: string; phone?: string | null } | null;
 }
 
 export interface InspectionChecklistItem {
@@ -130,10 +152,23 @@ export interface Inspection {
   findings: string;
   violationsCount: number;
   deadline?: string | null;
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'FOLLOW_UP_REQUIRED';
+  status: 'SCHEDULED' | 'SUBMITTED' | 'RETURNED' | 'COMPLETED' | 'MISSED' | 'IN_PROGRESS' | 'FOLLOW_UP_REQUIRED';
   recordHash?: string | null;
   createdAt: string;
   completedAt?: string | null;
+  title?: string | null;
+  assignedToId?: string | null;
+  assignedTo?: { id: string; name: string; role: Role | null; officerType?: string | null; trade?: string | null; phone?: string | null } | null;
+  assignedByName?: string | null;
+  outcome?: 'DONE' | 'NOT_DONE' | null;
+  submissionNote?: string | null;
+  photos: string[];
+  submittedAt?: string | null;
+  submitDistance?: number | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  canReview?: boolean;
 }
 
 export interface CorrectiveAction {
@@ -162,6 +197,8 @@ export interface Incident {
   peopleAffected: number;
   immediateResponse: string;
   rootCause?: string | null;
+  reportedById?: string | null;
+  reportedByName?: string | null;
   status: string;
   createdAt: string;
 }
@@ -200,4 +237,123 @@ export interface ComplianceKPIs {
   inspectionCompletionRate: number;
   averageResponseTimeHours: number;
   activeSosCount: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  date: string;
+  checkInAt: string;
+  checkInDistance: number | null;
+  checkInAccuracy?: number | null;
+  checkOutAt?: string | null;
+  checkOutDistance?: number | null;
+  syncedLate: boolean;
+  source: 'GPS' | 'MANUAL';
+  markedById?: string | null;
+  markedByName?: string | null;
+  note?: string | null;
+}
+
+export interface Geofence {
+  id: string;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  radiusMeters: number;
+}
+
+export interface MyAttendance {
+  date: string;
+  mine: Geofence | null;
+  today: AttendanceRecord | null;
+  history: AttendanceRecord[];
+}
+
+export interface RosterPerson extends StaffMember {
+  attendance: AttendanceRecord | null;
+}
+
+export interface MineAttendance {
+  date: string;
+  today: string;
+  mine: Geofence;
+  people: RosterPerson[];
+  summary: { total: number; present: number };
+  trend: { date: string; present: number }[];
+}
+
+export type EscalationTarget = 'OFFICER' | 'MINE_MANAGER' | 'PROJECT_MANAGER' | 'DGMS';
+
+export interface EscalationRecipient {
+  id: string;
+  name: string;
+  role: Role | null;
+  officerType?: string | null;
+  phone?: string | null;
+  badgeNumber?: string | null;
+}
+
+export interface Escalation {
+  id: string;
+  recordType: 'INCIDENT' | 'SOS';
+  recordId: string;
+  mineId: string;
+  mine: { id: string; name: string };
+  summary: string;
+  severe: boolean;
+  fromUserId: string;
+  fromUser: { id: string; name: string; role: Role | null; officerType?: string | null; phone?: string | null };
+  toRole: EscalationTarget;
+  toOfficerType?: string | null;
+  reason: string;
+  recipientCount: number;
+  callStatus: 'NONE' | 'NOT_CONFIGURED' | 'PLACED' | 'FAILED';
+  status: 'OPEN' | 'ACKNOWLEDGED';
+  acknowledgedByName?: string | null;
+  acknowledgedAt?: string | null;
+  createdAt: string;
+}
+
+export type RiskLevel = 'HIGH' | 'ELEVATED' | 'NORMAL';
+
+export interface MineKpis {
+  staff: number;
+  present: number;
+  openIncidents: number;
+  severeIncidents: number;
+  openHazards: number;
+  highHazards: number;
+  overdueInspections: number;
+  dueInspections: number;
+  awaitingApproval: number;
+  activeSos: number;
+  openEscalations: number;
+  risk: { score: number; level: RiskLevel };
+}
+
+export interface WeeklyTrend {
+  weekStart: string;
+  hazards: number;
+  incidents: number;
+  inspectionsCompleted: number;
+  attendanceRate: number;
+}
+
+export interface OfficerFocus {
+  discipline: string;
+  allAreas: boolean;
+  hazards: { id: string; category: string; severity: string; description: string; status: string; createdAt: string }[];
+  incidents: { id: string; incidentType: string; severity: string; location: string; status: string; createdAt: string }[];
+}
+
+export interface MineDashboard {
+  mine: { id: string; name: string; code: string };
+  kpis: MineKpis;
+  trends: WeeklyTrend[] | null;
+  focus: OfficerFocus | null;
+}
+
+export interface MinesOverview {
+  mines: (Geofence & { code: string; state: string; locality?: string | null; kpis: MineKpis })[];
+  activeSos: { id: string; emergencyType: string; status: string; triggeredAt: string; mine: { id: string; name: string }; zone: { name: string } | null }[];
 }
