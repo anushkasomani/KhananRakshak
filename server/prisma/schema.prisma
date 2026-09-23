@@ -1,0 +1,220 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String             @id @default(uuid())
+  email        String             @unique
+  name         String
+  passwordHash String
+  role         String             // WORKER, SAFETY_OFFICER, MINE_MANAGER, CORPORATE_ADMIN, REGULATOR, SYSTEM_ADMIN
+  badgeNumber  String?
+  mineId       String?
+  mine         Mine?              @relation(fields: [mineId], references: [id])
+  department   String?
+  points       Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  safetyReports SafetyReport[]
+  grievances    Grievance[]
+  pointsHistory RecognitionPoint[]
+  badges        UserBadge[]
+  notifications Notification[]
+}
+
+model Mine {
+  id              String         @id @default(uuid())
+  code            String         @unique
+  name            String
+  region          String
+  state           String
+  complianceScore Float          @default(92.5)
+  activeWorkers   Int            @default(420)
+  status          String         @default("OPERATIONAL") // OPERATIONAL, CAUTION, AUDIT_REQUIRED
+  createdAt       DateTime       @default(now())
+
+  zones           MineZone[]
+  users           User[]
+  safetyReports   SafetyReport[]
+  grievances      Grievance[]
+  inspections     Inspection[]
+  incidents       Incident[]
+  sosAlerts       SosAlert[]
+  announcements   Announcement[]
+}
+
+model MineZone {
+  id          String         @id @default(uuid())
+  mineId      String
+  mine        Mine           @relation(fields: [mineId], references: [id])
+  name        String
+  depthLevel  String         // e.g. "-180m Shaft 2", "Surface B-Zone"
+  riskFactor  String         // LOW, MODERATE, ELEVATED, HIGH
+  createdAt   DateTime       @default(now())
+
+  safetyReports SafetyReport[]
+  sosAlerts     SosAlert[]
+}
+
+model SafetyReport {
+  id                   String      @id // e.g. SAFE-2026-00124
+  reporterId           String?
+  reporter             User?       @relation(fields: [reporterId], references: [id])
+  mineId               String
+  mine                 Mine        @relation(fields: [mineId], references: [id])
+  zoneId               String?
+  zone                 MineZone?   @relation(fields: [zoneId], references: [id])
+  category             String      // PPE, MACHINERY, ELECTRICAL, FIRE, VENTILATION, GAS, STRUCTURAL, TRANSPORTATION, ENVIRONMENTAL, OTHER
+  severity             String      // LOW, MEDIUM, HIGH, CRITICAL
+  description          String
+  immediateActionTaken String?
+  imageUrl             String?
+  status               String      @default("SUBMITTED") // SUBMITTED, ASSIGNED, UNDER_INVESTIGATION, RESOLVED
+  assignedOfficer      String?
+  recordHash           String?
+  rewardPointsAwarded  Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+}
+
+model Grievance {
+  id             String    @id // e.g. GRV-2026-8F4A21
+  trackingCode   String    @unique
+  anonymityType  String    @default("ANONYMOUS") // ANONYMOUS, CONFIDENTIAL, IDENTIFIED
+  submitterId    String?
+  submitter      User?     @relation(fields: [submitterId], references: [id])
+  mineId         String
+  mine           Mine      @relation(fields: [mineId], references: [id])
+  category       String    // HARASSMENT, SUPERVISOR_PRESSURE, SAFETY_VIOLATIONS, IGNORED_HAZARDS, MISCONDUCT, UNSAFE_CONDITIONS, OTHER
+  description    String
+  status         String    @default("SUBMITTED") // SUBMITTED, UNDER_REVIEW, ASSIGNED, INVESTIGATION_IN_PROGRESS, ACTION_REQUIRED, RESOLVED, ESCALATED, CLOSED
+  escalationTier String    @default("MINE_OFFICER") // MINE_OFFICER, MINE_MANAGEMENT, CORPORATE, REGULATOR
+  timeline       String    @default("[]") // JSON string of timeline items
+  recordHash     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model SosAlert {
+  id               String    @id // e.g. SOS-2026-90412
+  workerIdentifier String    // Badge or Anonymous Token
+  mineId           String
+  mine             Mine      @relation(fields: [mineId], references: [id])
+  zoneId           String?
+  zone             MineZone? @relation(fields: [zoneId], references: [id])
+  emergencyType    String    // ACCIDENT, MEDICAL_EMERGENCY, FIRE, GAS_HAZARD, EQUIPMENT_FAILURE, UNSAFE_CONDITION, OTHER
+  status           String    @default("ALERT_TRIGGERED") // ALERT_TRIGGERED, ACKNOWLEDGED, TEAM_ASSIGNED, RESPONDING, RESOLVED
+  assignedTeams    String?   // JSON or comma separated teams
+  responderNotes   String?
+  triggeredAt      DateTime  @default(now())
+  resolvedAt       DateTime?
+}
+
+model Inspection {
+  id              String    @id // e.g. INS-2026-00071
+  mineId          String
+  mine            Mine      @relation(fields: [mineId], references: [id])
+  inspectorName   String
+  inspectionType  String    // STATUTORY_QUARTERLY, VENTILATION_AUDIT, ROOF_SUPPORT_CHECK, ELECTRICAL_SAFETY, ROUTINE
+  checklistData   String    // JSON array of checked criteria
+  findings        String
+  violationsCount Int       @default(0)
+  deadline        DateTime?
+  status          String    @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, FOLLOW_UP_REQUIRED
+  recordHash      String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+}
+
+model CorrectiveAction {
+  id                String    @id // e.g. ACT-2026-00042
+  issueId           String
+  issueType         String    // SAFETY_REPORT, INSPECTION, INCIDENT, GRIEVANCE
+  actionRequired    String
+  responsiblePerson String
+  deadline          DateTime
+  priority          String    // LOW, MEDIUM, HIGH, CRITICAL
+  status            String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE
+  evidence          String?
+  verifiedBy        String?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+}
+
+model Incident {
+  id                 String    @id // e.g. INC-2026-00015
+  incidentType       String    // METHANE_SPIKE, ROOF_FALL, EQUIPMENT_JAM, MINOR_INJURY, ELECTRICAL_SHORT
+  mineId             String
+  mine               Mine      @relation(fields: [mineId], references: [id])
+  location           String
+  severity           String    // MINOR, SERIOUS, CRITICAL, FATALITY
+  description        String
+  peopleAffected     Int       @default(0)
+  immediateResponse  String
+  rootCause          String?
+  correctiveActionId String?
+  status             String    @default("INVESTIGATING") // INVESTIGATING, CONTAINED, RESOLVED, CLOSED
+  createdAt          DateTime  @default(now())
+}
+
+model AuditBlock {
+  id              Int       @id @default(autoincrement())
+  blockIndex      Int       @unique
+  previousHash    String
+  currentHash     String
+  timestamp       DateTime  @default(now())
+  recordType      String    // SAFETY_REPORT, GRIEVANCE, INSPECTION, CORRECTIVE_ACTION, SOS_ALERT
+  recordId        String
+  action          String    // CREATED, ESCALATED, STATUS_CHANGED, RESOLVED, VERIFIED
+  performedByRole String
+  payloadHash     String
+  payloadSummary  String
+}
+
+model RecognitionPoint {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  pointsAwarded Int
+  reason        String
+  verifiedBy    String
+  createdAt     DateTime @default(now())
+}
+
+model UserBadge {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  badgeCode   String   // SAFETY_CHAMPION, HAZARD_HUNTER, COMPLIANCE_LEADER, EARLY_RISK_REPORTER, ZERO_PENDING_ACTIONS
+  title       String
+  icon        String
+  description String
+  awardedAt   DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String   // INFO, WARNING, SOS, RECOGNITION, AUDIT
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  mineId    String?
+  mine      Mine?    @relation(fields: [mineId], references: [id])
+  title     String
+  content   String
+  priority  String   // NORMAL, HIGH, URGENT
+  createdAt DateTime @default(now())
+}
