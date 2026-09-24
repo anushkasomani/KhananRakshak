@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -42,6 +43,7 @@ const emptyForm = (mineId: string) => ({
 
 export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) => {
   const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [reports, setReports] = useState<SafetyReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selected, setSelected] = useState<SafetyReport | null>(null);
@@ -65,12 +67,21 @@ export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) =
         status: filterStatus || undefined,
         mineId: filterMine || undefined,
       });
-      setReports(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      setReports(rows);
+      const openId = params.get('open');
+      const match = openId && rows.find((row) => row.id === openId);
+      if (match) setSelected(match);
     } catch (e) {
       console.error('Error fetching safety reports:', e);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const closeSelected = () => {
+    setSelected(null);
+    if (params.has('open')) setParams({}, { replace: true });
   };
 
   useEffect(() => {
@@ -215,7 +226,7 @@ export const SafetyReportsPage: React.FC<SafetyReportsPageProps> = ({ mines }) =
       </div>
 
       {selected && (
-        <Modal title={selected.id} onClose={() => setSelected(null)}>
+        <Modal title={selected.id} onClose={closeSelected}>
           <div className="p-5 space-y-5">
             {selected.imageUrl && (
               <img src={selected.imageUrl} alt="" className="w-full h-44 object-cover rounded-lg border border-white/[0.06]" />

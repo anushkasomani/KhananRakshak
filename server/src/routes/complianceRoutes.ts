@@ -12,6 +12,7 @@ router.get('/dashboard', async (req, res) => {
   const [
     totalReports,
     resolvedReports,
+    resolvedRows,
     criticalReports,
     allActions,
     allInspections,
@@ -21,12 +22,13 @@ router.get('/dashboard', async (req, res) => {
   ] = await Promise.all([
     prisma.safetyReport.count({ where: whereMine }),
     prisma.safetyReport.count({ where: { ...whereMine, status: 'RESOLVED' } }),
+    prisma.safetyReport.findMany({ where: { ...whereMine, status: 'RESOLVED' }, select: { updatedAt: true } }),
     prisma.safetyReport.count({ where: { ...whereMine, severity: 'CRITICAL' } }),
     prisma.correctiveAction.findMany(),
     prisma.inspection.findMany({ where: whereMine }),
-    prisma.mine.findMany({ include: { _count: { select: { safetyReports: true, incidents: true } } } }),
+    prisma.mine.findMany({ where: mineId ? { id: String(mineId) } : {}, include: { _count: { select: { safetyReports: true, incidents: true } } } }),
     prisma.incident.findMany({ where: whereMine }),
-    prisma.sosAlert.count({ where: { status: { in: ['ALERT_TRIGGERED', 'ACKNOWLEDGED', 'TEAM_ASSIGNED', 'RESPONDING'] } } })
+    prisma.sosAlert.count({ where: { ...whereMine, status: { in: ['ALERT_TRIGGERED', 'ACKNOWLEDGED', 'TEAM_ASSIGNED', 'RESPONDING'] } } })
   ]);
 
   const pendingActions = allActions.filter(a => a.status === 'PENDING' || a.status === 'IN_PROGRESS').length;
@@ -36,10 +38,10 @@ router.get('/dashboard', async (req, res) => {
   // Overall compliance score calculation
   const avgCompliance = mines.length
     ? Math.round((mines.reduce((acc, m) => acc + m.complianceScore, 0) / mines.length) * 10) / 10
-    : 92.4;
+    : null;
 
   const inspectionCompleted = allInspections.filter(i => i.status === 'COMPLETED').length;
-  const inspectionRate = allInspections.length ? Math.round((inspectionCompleted / allInspections.length) * 100) : 100;
+  const inspectionRate = allInspections.length ? Math.round((inspectionCompleted / allInspections.length) * 100) : null;
 
   // Category breakdown for charts
   const categoriesRaw = await prisma.safetyReport.groupBy({
@@ -63,15 +65,17 @@ router.get('/dashboard', async (req, res) => {
     count: s._count.id
   }));
 
-  // Trends mock/realistic month data
-  const monthlyTrends = [
-    { month: 'Apr', compliance: 91.2, incidents: 3, resolvedReports: 14 },
-    { month: 'May', compliance: 92.8, incidents: 2, resolvedReports: 22 },
-    { month: 'Jun', compliance: 90.5, incidents: 4, resolvedReports: 18 },
-    { month: 'Jul', compliance: 93.4, incidents: 1, resolvedReports: 26 },
-    { month: 'Aug', compliance: 94.1, incidents: 2, resolvedReports: 31 },
-    { month: 'Sep', compliance: avgCompliance, incidents: incidents.length, resolvedReports: resolvedReports }
-  ];
+  const monthlyTrends = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - (5 - index));
+    const next = new Date(date);
+    next.setMonth(next.getMonth() + 1);
+    const inspections = allInspections.filter((i) => i.createdAt >= date && i.createdAt < next);
+    const monthlyIncidents = incidents.filter((i) => i.createdAt >= date && i.createdAt < next).length;
+    const monthlyResolved = resolvedRows.filter((r) => r.updatedAt >= date && r.updatedAt < next).length;
+    return { month: date.toLocaleString('en', { month: 'short' }), inspectionCompletionRate: inspections.length ? Math.round((inspections.filter((i) => i.status === 'COMPLETED').length / inspections.length) * 100) : null, incidents: monthlyIncidents, resolvedReports: monthlyResolved };
+  });
 
   return res.json({
     kpis: {
@@ -83,7 +87,7 @@ router.get('/dashboard', async (req, res) => {
       totalSafetyReports: totalReports,
       resolvedSafetyReports: resolvedReports,
       inspectionCompletionRate: inspectionRate,
-      averageResponseTimeHours: 2.4,
+      averageResponseTimeHours: null,
       activeSosCount: activeSos
     },
     categoryBreakdown,
@@ -111,7 +115,7 @@ router.get('/corporate-summary', async (_req, res) => {
     const totalViolations = m.inspections.reduce((acc, curr) => acc + curr.violationsCount, 0);
 
     // Dynamic response time based on compliance
-    const responseTime = m.complianceScore > 95 ? '1.8 hrs' : m.complianceScore > 90 ? '2.6 hrs' : '4.4 hrs';
+    const responseTime = null;
 
     return {
       id: m.id,

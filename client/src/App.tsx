@@ -31,6 +31,7 @@ import { EscalationsPage } from './pages/EscalationsPage';
 import { AdminMinesPage } from './pages/admin/AdminMinesPage';
 import { MineDetailPage } from './pages/admin/MineDetailPage';
 import { AdminPeoplePage } from './pages/admin/AdminPeoplePage';
+import { GovernanceIntelligencePage } from './pages/admin/GovernanceIntelligencePage';
 
 const AppShell: React.FC = () => {
   const location = useLocation();
@@ -67,6 +68,7 @@ const AppShell: React.FC = () => {
     '/audit-verification': <AuditVerificationPage />,
     '/admin/mines': <AdminMinesPage />,
     '/admin/people': <AdminPeoplePage />,
+    '/admin/governance': <GovernanceIntelligencePage mines={mines} />,
   };
   const home = homePath(user);
   const hasTabs = !!user?.role; // phones get a bottom tab bar; admin-only accounts keep the menu button

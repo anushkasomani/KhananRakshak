@@ -1,0 +1,183 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const auditService_1 = require("../services/auditService");
+const db_1 = require("../db");
+const router = (0, express_1.Router)();
+// GET /api/safety-reports
+router.get('/', auth_1.optionalAuthenticate, async (req, res) => {
+    const { mineId, severity, status, category, limit } = req.query;
+    const where = {};
+    const scope = (0, auth_1.mineScope)(req);
+    if (scope)
+        where.mineId = scope;
+    else if (mineId)
+        where.mineId = String(mineId);
+    if (severity)
+        where.severity = String(severity);
+    if (status)
+        where.status = String(status);
+    if (category)
+        where.category = String(category);
+    // If worker, allow seeing own reports and mine reports
+    if (req.user && req.user.role === 'WORKER' && req.query.mineOnly === 'false') {
+        where.reporterId = req.user.id;
+    }
+    const reports = await db_1.prisma.safetyReport.findMany({
+        where,
+        include: {
+            mine: { select: { id: true, name: true, code: true } },
+            zone: { select: { id: true, name: true, depthLevel: true } },
+            reporter: { select: { id: true, name: true, badgeNumber: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit ? parseInt(String(limit), 10) : 50
+    });
+    return res.json(reports);
+});
+// POST /api/safety-reports
+router.post('/', auth_1.optionalAuthenticate, async (req, res) => {
+    try {
+        const { mineId, zoneId, category, severity, description, immediateActionTaken, imageUrl } = req.body;
+        if (!mineId || !category || !severity || !description) {
+            return res.status(400).json({ error: 'Mine, category, severity, and description are required' });
+        }
+        // Generate unique ID: SAFE-2026-XXXXX
+        const randomSuffix = Math.floor(10000 + Math.random() * 90000);
+        const reportId = `SAFE-2026-${randomSuffix}`;
+        const reporterId = req.user ? req.user.id : null;
+        const report = await db_1.prisma.safetyReport.create({
+            data: {
+                id: reportId,
+                reporterId,
+                mineId,
+                zoneId: zoneId || null,
+                category,
+                severity,
+                description,
+                immediateActionTaken: immediateActionTaken || null,
+                imageUrl: imageUrl || null,
+                status: 'SUBMITTED',
+                assignedOfficer: 'Unassigned',
+            },
+            include: {
+                mine: true,
+                zone: true,
+                reporter: { select: { id: true, name: true, badgeNumber: true } }
+            }
+        });
+        // Record to Cryptographic Audit Chain
+        const auditBlock = await auditService_1.AuditService.recordEvent({
+            recordType: 'SAFETY_REPORT',
+            recordId: report.id,
+            action: 'CREATED',
+            performedByRole: (0, auth_1.actorRole)(req, 'ANONYMOUS_WORKER'),
+            data: {
+                id: report.id,
+                category: report.category,
+                severity: report.severity,
+                mineId: report.mineId,
+                description: report.description,
+                timestamp: report.createdAt
+            }
+        });
+        // Update report with block hash
+        if (auditBlock) {
+            await db_1.prisma.safetyReport.update({
+                where: { id: report.id },
+                data: { recordHash: auditBlock.currentHash }
+            });
+        }
+        // Notify Safety Officers
+        const officers = await db_1.prisma.user.findMany({
+            where: { role: { in: ['SUPERVISOR', 'OFFICER'] }, mineId: report.mineId, status: 'APPROVED' }
+        });
+        for (const officer of officers) {
+            await db_1.prisma.notification.create({
+                data: {
+                    userId: officer.id,
+                    title: `New Hazard Report: ${report.id}`,
+                    message: `[${report.severity}] ${report.category} hazard logged in ${report.mine.name}`,
+                    type: report.severity === 'CRITICAL' ? 'WARNING' : 'INFO'
+                }
+            });
+        }
+        return res.status(201).json({ report, auditBlock });
+    }
+    catch (err) {
+        console.error('Error creating safety report:', err);
+        return res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+// PATCH /api/safety-reports/:id/status
+router.patch('/:id/status', (0, auth_1.requireLevel)('SUPERVISOR'), async (req, res) => {
+    try {
+        const { status, assignedOfficer, correctiveActionText } = req.body;
+        const reportId = String(req.params.id);
+        const existing = await db_1.prisma.safetyReport.findUnique({
+            where: { id: reportId },
+            include: { reporter: true, mine: true }
+        });
+        if (!existing) {
+            return res.status(404).json({ error: 'Safety report not found' });
+        }
+        const updated = await db_1.prisma.safetyReport.update({
+            where: { id: reportId },
+            data: {
+                status: status || existing.status,
+                assignedOfficer: assignedOfficer !== undefined ? assignedOfficer : existing.assignedOfficer
+            }
+        });
+        // If marked RESOLVED or verified, award points to worker if not already awarded
+        let awardedPoints = 0;
+        if (status === 'RESOLVED' && existing.reporterId && !existing.rewardPointsAwarded) {
+            awardedPoints = existing.severity === 'CRITICAL' ? 30 : existing.severity === 'HIGH' ? 20 : 10;
+            await db_1.prisma.user.update({
+                where: { id: existing.reporterId },
+                data: { points: { increment: awardedPoints } }
+            });
+            await db_1.prisma.recognitionPoint.create({
+                data: {
+                    userId: existing.reporterId,
+                    pointsAwarded: awardedPoints,
+                    reason: `Verified ${existing.severity} hazard report: ${existing.id} (${existing.category})`,
+                    verifiedBy: req.user.name
+                }
+            });
+            await db_1.prisma.safetyReport.update({
+                where: { id: reportId },
+                data: { rewardPointsAwarded: true }
+            });
+            await db_1.prisma.notification.create({
+                data: {
+                    userId: existing.reporterId,
+                    title: `+${awardedPoints} Safety Recognition Points!`,
+                    message: `Your hazard report ${existing.id} has been verified and resolved. Keep your mine safe!`,
+                    type: 'RECOGNITION'
+                }
+            });
+        }
+        // Append to Audit Chain
+        const auditBlock = await auditService_1.AuditService.recordEvent({
+            recordType: 'SAFETY_REPORT',
+            recordId: reportId,
+            action: status === 'RESOLVED' ? 'RESOLVED' : 'STATUS_CHANGED',
+            performedByRole: (0, auth_1.actorRole)(req),
+            data: {
+                id: reportId,
+                oldStatus: existing.status,
+                newStatus: status,
+                assignedOfficer: assignedOfficer || existing.assignedOfficer,
+                actionText: correctiveActionText || null,
+                pointsGranted: awardedPoints
+            }
+        });
+        return res.json({ updated, awardedPoints, auditBlock });
+    }
+    catch (err) {
+        console.error('Error updating safety report:', err);
+        return res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+exports.default = router;

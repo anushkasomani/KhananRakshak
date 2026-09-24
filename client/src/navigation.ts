@@ -11,6 +11,7 @@ import {
   FileKey2,
   Trophy,
   Activity,
+  BrainCircuit,
   MapPinned,
   Users,
   CalendarCheck,
@@ -51,6 +52,7 @@ export const NAV: NavItem[] = [
 
   { to: '/admin/mines', label: 'Mines', icon: MapPinned, group: 'Admin', adminOnly: true },
   { to: '/admin/people', label: 'People', icon: Users, group: 'Admin', adminOnly: true },
+  { to: '/admin/governance', label: 'Governance intelligence', icon: BrainCircuit, group: 'Admin', adminOnly: true },
 ];
 
 export function canAccess(user: User | null | undefined, item: Pick<NavItem, 'min' | 'adminOnly' | 'requiresRole'>): boolean {

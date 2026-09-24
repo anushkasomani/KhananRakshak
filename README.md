@@ -38,6 +38,8 @@ GOOGLE_CLIENT_ID=...                  # same Google client ID as the frontend
 ADMIN_EMAILS=you@gmail.com,other@gmail.com   # these accounts become admin on sign-in
 JWT_SECRET=any-long-random-string     # signs login tokens
 ATTENDANCE_RADIUS_OVERRIDE_M=10000    # optional, for testing: lets you check in from 10 km away
+GROQ_API_KEY=your-groq-api-key        # optional: enables admin Governance Intelligence analysis
+GROQ_MODEL=openai/gpt-oss-120b        # optional: Groq model (this is the default)
 ```
 
 `client/.env`
@@ -63,6 +65,12 @@ Everyone has exactly one role. From lowest to highest:
 **Admin** is separate from roles. It's a switch on the account. Admins add mines, approve new people, and assign inspections. Anyone listed in `ADMIN_EMAILS` becomes an admin automatically.
 
 Everyone except DGMS and admins only sees data for **their own mine**. The server enforces this, not just the screen.
+
+### Governance intelligence
+
+Admins can open **Governance intelligence** to review database-derived mine risk indicators, repeated open hazard groups and inspection activity anomalies. The deterministic analytics are available without an AI key. To generate a narrative, an admin explicitly submits a question; Groq receives that question plus calculated metrics, mine names, finding categories and supporting record IDs. It does not receive worker identities, contact details, operational descriptions, grievances, or raw records. Keep personal details out of the question. The latest 20 successful analyses and their analytics snapshots are stored in SQLite and remain available after reload. Analysis requests are also recorded in the existing audit hash chain with the requester, scope, timestamp and a hash of the question. The API key stays in `server/.env` and is never sent to the browser. `XAI_API_KEY` remains accepted as a migration fallback for existing local configurations, but `GROQ_API_KEY` is the preferred setting.
+
+The inspection anomaly baseline requires at least four inspections overall and two in the prior 30 days; otherwise it is labeled `insufficient_data`. It flags zero inspections in the latest 30 days against that baseline. Recurring hazards are grouped by the exact mine, category and zone. Risk score is active SOS ×10 + open high/critical hazards ×3 + overdue actions ×2 + open incidents ×2 + missed inspections ×1 + inspection violations (capped at 5); levels are normal below 4, elevated from 4, and high from 10. Indicator counts and supporting record IDs appear alongside each mine.
 
 ### Each role's home screen
 

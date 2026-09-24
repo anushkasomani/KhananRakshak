@@ -73,6 +73,43 @@ export interface GpsReading {
   capturedAt?: string;
 }
 
+export interface GovernanceAnalytics {
+  generatedAt: string;
+  filters: { mineId: string | null; periodDays: number };
+  coverage: { mines: number; hazards: number; openHazards: number; inspections: number; incidents: number; sosAlerts: number; correctiveActions: number };
+  metrics: { mineId: string; mineName: string; period: string; inspectionCount: number; previousInspectionCount: number; incidentCount: number; previousIncidentCount: number; hazardCount: number; previousHazardCount: number; inspectionViolationCount: number; activeSosCount: number; overdueActionCount: number; completedActionCount: number; meanActionClosureDays: number | null; previousMeanActionClosureDays: number | null; dataStatus: string; evidenceQuality: 'HIGH' | 'MODERATE' | 'LIMITED'; currentRecordCount: number; previousRecordCount: number }[];
+  risks: { mineId: string; mineName: string; score: number; riskLevel: string; indicators: { type: string; description: string; count: number; evidenceIds: string[] }[] }[];
+  recurringIssues: { mineId: string; mineName: string; issue: string; location: string; count: number; detection: string; evidenceIds: string[]; firstSeen: string; lastSeen: string }[];
+  anomalies: { mineId: string; mineName: string; metric: string; value?: number; previousValue?: number; status: string; explanation?: string; reason?: string; evidenceIds?: string[] }[];
+  dataWarnings: { mineId: string; mineName: string; evidenceQuality: 'HIGH' | 'MODERATE' | 'LIMITED'; warnings: string[] }[];
+  evidence: { hazards: any[]; inspections: any[]; incidents: any[]; sos: any[]; correctiveActions: any[] };
+  aiEvidence?: { maxRecordsPerCategory: number; maxTextCharactersPerField: number; hazards: any[]; inspections: any[]; incidents: any[]; sos: any[]; correctiveActions: any[] };
+}
+
+export interface GovernanceSavedAnalysis {
+  id: string;
+  requestedAt: string;
+  requestedById: string;
+  scope: string;
+  mineIds: string[];
+  analysis: GovernanceAIAnalysis;
+  analytics: GovernanceAnalytics;
+}
+
+export interface GovernanceAIAnalysis {
+  summary: string;
+  priority?: string;
+  whyThisMineFlagged?: string;
+  observedFacts?: { label: string; value: string | number; evidenceIds: string[] }[];
+  patterns?: { pattern: string; evidenceIds: string[] }[];
+  interpretation?: string;
+  recommendedAdministrativeReview?: string[];
+  dataLimitations?: string[];
+  // Backward-compatible fields for saved analyses created before the structured format.
+  keyFindings?: { title: string; explanation: string; evidenceIds: string[] }[];
+  recommendedActions?: string[];
+}
+
 export const api = {
   // Auth & onboarding
   login: (email: string, password: string) =>
@@ -87,6 +124,9 @@ export const api = {
   getUsers: (params?: { status?: string; mineId?: string }) => request<User[]>(`/admin/users${toQuery(params)}`),
   createUser: (data: Record<string, unknown>) => request<User>('/admin/users', { method: 'POST', body: data }),
   updateUser: (id: string, data: Record<string, unknown>) => request<User>(`/admin/users/${id}`, { method: 'PATCH', body: data }),
+  getGovernanceAnalytics: (params?: { mineId?: string; periodDays?: number }) => request<GovernanceAnalytics>(`/admin/governance${toQuery({ mineId: params?.mineId, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
+  getGovernanceHistory: () => request<GovernanceSavedAnalysis[]>('/admin/governance/history'),
+  analyzeGovernance: (question: string, options: { mineId?: string; periodDays?: number } = {}) => request<{ analysis: GovernanceAIAnalysis; analytics: GovernanceAnalytics; requestId: string }>('/admin/governance/analyze', { method: 'POST', body: { question, ...options } }),
 
   // Mines
   getMines: () => request<Mine[]>('/mines'),

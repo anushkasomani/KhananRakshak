@@ -179,19 +179,19 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ mines 
 
           <div className="grid lg:grid-cols-2 gap-4">
             <ChartCard
-              title="Compliance score by month (%)"
-              columns={['Month', 'Compliance %']}
-              rows={trends.map((t) => [t.month, t.compliance])}
+              title="Inspection completion by month (%)"
+              columns={['Month', 'Completion %']}
+              rows={trends.map((t) => [t.month, t.inspectionCompletionRate])}
             >
               <LineChart data={trends} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="month" {...axisProps} />
-                <YAxis domain={[80, 100]} {...axisProps} />
+                <YAxis domain={[0, 100]} {...axisProps} />
                 <Tooltip {...tooltipProps} cursor={{ stroke: '#3f3f46', strokeWidth: 1 }} />
                 <Line
                   type="monotone"
-                  dataKey="compliance"
-                  name="Compliance %"
+                  dataKey="inspectionCompletionRate"
+                  name="Inspection completion %"
                   stroke={SERIES_1}
                   strokeWidth={2}
                   dot={{ r: 4, fill: SERIES_1, stroke: SURFACE, strokeWidth: 2 }}
@@ -284,7 +284,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ mines 
                     <td className={`px-4 py-3 text-right tabular-nums ${m.activeSos > 0 ? 'text-red-400' : 'text-zinc-500'}`}>
                       {m.activeSos}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-400">{m.averageResponseTime}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-zinc-500">{m.averageResponseTime ?? 'Unavailable'}</td>
                     <td className="px-4 py-3">
                       <StatusPill status={m.status} />
                     </td>

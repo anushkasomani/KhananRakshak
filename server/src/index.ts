@@ -18,6 +18,7 @@ import adminRoutes from './routes/adminRoutes';
 import attendanceRoutes from './routes/attendanceRoutes';
 import escalationRoutes from './routes/escalationRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
+import governanceRoutes from './routes/governanceRoutes';
 import { authenticate, requireApproved, requireAdmin } from './middleware/auth';
 import { UPLOAD_ROOT } from './services/photoStorage';
 
@@ -47,6 +48,7 @@ app.use('/api/uploads', express.static(UPLOAD_ROOT, { index: false, maxAge: '30d
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', ...approved, requireAdmin, adminRoutes);
+app.use('/api/admin/governance', ...approved, requireAdmin, governanceRoutes);
 app.use('/api/mines', ...approved, mineRoutes);
 app.use('/api/safety-reports', ...approved, safetyReportRoutes);
 app.use('/api/grievances', ...approved, grievanceRoutes);

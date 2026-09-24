@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { CorrectiveAction } from '../types';
@@ -9,6 +10,7 @@ type View = 'open' | 'done';
 
 export const CorrectiveActionsPage: React.FC = () => {
   const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [actions, setActions] = useState<CorrectiveAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<View>('open');
@@ -20,12 +22,21 @@ export const CorrectiveActionsPage: React.FC = () => {
   const loadActions = async () => {
     try {
       const data = await api.getCorrectiveActions();
-      setActions(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      setActions(rows);
+      const openId = params.get('open');
+      const match = openId && rows.find((action) => action.id === openId);
+      if (match) setSelected(match);
     } catch (e) {
       console.error('Error fetching corrective actions:', e);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const closeSelected = () => {
+    setSelected(null);
+    if (params.has('open')) setParams({}, { replace: true });
   };
 
   useEffect(() => {
@@ -110,7 +121,7 @@ export const CorrectiveActionsPage: React.FC = () => {
       </div>
 
       {selected && (
-        <Modal title={selected.id} onClose={() => setSelected(null)}>
+        <Modal title={selected.id} onClose={closeSelected}>
           <div className="p-5 space-y-5">
             <p className="text-sm text-zinc-200 leading-relaxed">{selected.actionRequired}</p>
             <DetailRows

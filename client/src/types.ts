@@ -235,7 +235,7 @@ export interface ComplianceKPIs {
   totalSafetyReports: number;
   resolvedSafetyReports: number;
   inspectionCompletionRate: number;
-  averageResponseTimeHours: number;
+  averageResponseTimeHours: number | null;
   activeSosCount: number;
 }
 

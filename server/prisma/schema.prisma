@@ -248,6 +248,21 @@ model AuditBlock {
   payloadSummary  String
 }
 
+// Stores the generated narrative and the analytics snapshot it interpreted so
+// admins can revisit evidence-backed analyses after a reload.
+model GovernanceAnalysis {
+  id            String   @id @default(uuid())
+  requestedById String
+  requestedAt   DateTime @default(now())
+  scope         String   @default("all_mines")
+  mineIds       String   // JSON array of mine IDs
+  questionHash  String
+  analysis      String   // JSON object returned by the model
+  analytics     String   // JSON snapshot used to produce the analysis
+
+  @@index([requestedAt])
+}
+
 model RecognitionPoint {
   id            String   @id @default(uuid())
   userId        String
