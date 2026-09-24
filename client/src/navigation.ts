@@ -12,6 +12,7 @@ import {
   Trophy,
   Activity,
   BrainCircuit,
+  Scale,
   MapPinned,
   Users,
   CalendarCheck,
@@ -26,6 +27,7 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   group?: 'Safety' | 'People' | 'Governance' | 'Admin';
+  subgroup?: string;
   min?: Role; // lowest role that can open it; admins can open everything
   adminOnly?: boolean;
   requiresRole?: boolean; // hidden for admin accounts that have no hierarchy role
@@ -52,7 +54,8 @@ export const NAV: NavItem[] = [
 
   { to: '/admin/mines', label: 'Mines', icon: MapPinned, group: 'Admin', adminOnly: true },
   { to: '/admin/people', label: 'People', icon: Users, group: 'Admin', adminOnly: true },
-  { to: '/admin/governance', label: 'Governance intelligence', icon: BrainCircuit, group: 'Admin', adminOnly: true },
+  { to: '/admin/governance', label: 'Governance intelligence', icon: BrainCircuit, group: 'Admin', subgroup: 'Governance', adminOnly: true },
+  { to: '/admin/compliance', label: 'Statutory compliance', icon: Scale, group: 'Admin', subgroup: 'Governance', adminOnly: true },
 ];
 
 export function canAccess(user: User | null | undefined, item: Pick<NavItem, 'min' | 'adminOnly' | 'requiresRole'>): boolean {

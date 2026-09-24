@@ -84,6 +84,7 @@ export interface GovernanceAnalytics {
   dataWarnings: { mineId: string; mineName: string; evidenceQuality: 'HIGH' | 'MODERATE' | 'LIMITED'; warnings: string[] }[];
   evidence: { hazards: any[]; inspections: any[]; incidents: any[]; sos: any[]; correctiveActions: any[] };
   aiEvidence?: { maxRecordsPerCategory: number; maxTextCharactersPerField: number; hazards: any[]; inspections: any[]; incidents: any[]; sos: any[]; correctiveActions: any[] };
+  complianceSummary?: { total: number; evaluatedMines: number; compliant: number; nonCompliant: number; overdue: number; partiallyCompliant: number; insufficientData: number; byMine: { mineId: string; mineName: string; total: number; compliant: number; nonCompliant: number; overdue: number; partiallyCompliant: number; insufficientData: number }[] };
 }
 
 export interface GovernanceSavedAnalysis {
@@ -110,6 +111,25 @@ export interface GovernanceAIAnalysis {
   recommendedActions?: string[];
 }
 
+export interface ComplianceRule {
+  id: string; code: string; title: string; description: string; category: string; frequency: string; severity: string;
+  evaluationType: string; configuration: Record<string, unknown>; requiredEvidenceType: string | null; sourceReference: string; active: boolean;
+  applicableMines: { id: string; name: string }[]; status?: string; lastEvaluatedAt?: string | null; nextDue?: string | null;
+}
+export interface ComplianceEvidenceRef { recordType: string; recordId: string; summary: string }
+export interface ComplianceCheck {
+  id: string; ruleId: string; mineId: string; periodKey: string; periodStart: string; periodEnd: string; status: string;
+  expectedValue: Record<string, unknown>; actualValue: Record<string, unknown>; dueDate: string | null; evidenceRefs: ComplianceEvidenceRef[];
+  violationSummary: string | null; correctiveActionIds: string[]; checkedAt: string;
+  rule: ComplianceRule; mine: { id: string; name: string };
+}
+export interface StatutoryComplianceDashboard {
+  summary: { minesMonitored: number; totalChecks: number; compliant: number; nonCompliant: number; overdue: number; insufficientData: number };
+  mineMetrics: { mineId: string; mineName: string; checks: number; compliant: number; nonCompliant: number; overdue: number; insufficientData: number; compliancePercent: number | null }[];
+  rules: ComplianceRule[];
+  checks: ComplianceCheck[];
+}
+
 export const api = {
   // Auth & onboarding
   login: (email: string, password: string) =>
@@ -127,6 +147,12 @@ export const api = {
   getGovernanceAnalytics: (params?: { mineId?: string; periodDays?: number }) => request<GovernanceAnalytics>(`/admin/governance${toQuery({ mineId: params?.mineId, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
   getGovernanceHistory: () => request<GovernanceSavedAnalysis[]>('/admin/governance/history'),
   analyzeGovernance: (question: string, options: { mineId?: string; periodDays?: number } = {}) => request<{ analysis: GovernanceAIAnalysis; analytics: GovernanceAnalytics; requestId: string }>('/admin/governance/analyze', { method: 'POST', body: { question, ...options } }),
+  getStatutoryCompliance: (params?: { mineId?: string; status?: string; category?: string; periodDays?: number }) => request<StatutoryComplianceDashboard>(`/admin/compliance${toQuery({ mineId: params?.mineId, status: params?.status, category: params?.category, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
+  getComplianceRules: (mineId?: string) => request<ComplianceRule[]>(`/admin/compliance/rules${toQuery({ mineId })}`),
+  getComplianceChecks: (params?: { mineId?: string; status?: string; category?: string; periodDays?: number }) => request<ComplianceCheck[]>(`/admin/compliance/checks${toQuery({ mineId: params?.mineId, status: params?.status, category: params?.category, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
+  evaluateCompliance: (mineId?: string) => request<{ checkedAt: string; checks: ComplianceCheck[]; statusChanges: number }>('/admin/compliance/evaluate', { method: 'POST', body: { mineId } }),
+  createComplianceRule: (data: Record<string, unknown>) => request<ComplianceRule>('/admin/compliance/rules', { method: 'POST', body: data }),
+  setComplianceRuleActive: (id: string, active: boolean) => request<ComplianceRule>(`/admin/compliance/rules/${id}`, { method: 'PATCH', body: { active } }),
 
   // Mines
   getMines: () => request<Mine[]>('/mines'),

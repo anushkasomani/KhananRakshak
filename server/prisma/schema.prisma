@@ -64,6 +64,8 @@ model Mine {
   announcements   Announcement[]
   attendance      Attendance[]
   escalations     Escalation[]
+  complianceRules ComplianceRule[] @relation("ComplianceRuleMines")
+  complianceChecks ComplianceCheck[]
 }
 
 // One row per person per day. Check-in is accepted only inside the mine's geofence.
@@ -261,6 +263,55 @@ model GovernanceAnalysis {
   analytics     String   // JSON snapshot used to produce the analysis
 
   @@index([requestedAt])
+}
+
+// Admin-configured requirements. A rule with no applicableMines is global.
+// sourceReference should identify a verified source or explicitly say DEMO/CONFIGURED.
+model ComplianceRule {
+  id                  String    @id @default(uuid())
+  code                String    @unique
+  title               String
+  description         String
+  category            String
+  frequency           String
+  severity            String    @default("MEDIUM")
+  evaluationType      String    // INSPECTION_COUNT, CORRECTIVE_ACTION_DEADLINE
+  configuration       String    @default("{}") // JSON string for deterministic evaluator parameters
+  requiredEvidenceType String?
+  sourceReference     String
+  active              Boolean   @default(true)
+  applicableMines     Mine[]    @relation("ComplianceRuleMines")
+  checks              ComplianceCheck[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([active, category])
+}
+
+// One deterministic evaluation result per rule/mine/stable period key.
+model ComplianceCheck {
+  id                    String         @id @default(uuid())
+  ruleId                String
+  rule                  ComplianceRule @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  mineId                String
+  mine                  Mine           @relation(fields: [mineId], references: [id], onDelete: Restrict)
+  periodKey             String
+  periodStart           DateTime
+  periodEnd             DateTime
+  expectedValue         String         // JSON string
+  actualValue           String         // JSON string
+  status                String         // COMPLIANT, PARTIALLY_COMPLIANT, NON_COMPLIANT, OVERDUE, NOT_APPLICABLE, INSUFFICIENT_DATA
+  dueDate               DateTime?
+  evidenceRefs          String         @default("[]") // JSON array of typed existing record IDs
+  violationSummary      String?
+  correctiveActionIds   String         @default("[]") // JSON array of existing action IDs
+  checkedAt             DateTime       @default(now())
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@unique([ruleId, mineId, periodKey])
+  @@index([mineId, status, checkedAt])
+  @@index([ruleId, checkedAt])
 }
 
 model RecognitionPoint {

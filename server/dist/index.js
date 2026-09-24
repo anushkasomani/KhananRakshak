@@ -24,6 +24,7 @@ const attendanceRoutes_1 = __importDefault(require("./routes/attendanceRoutes"))
 const escalationRoutes_1 = __importDefault(require("./routes/escalationRoutes"));
 const dashboardRoutes_1 = __importDefault(require("./routes/dashboardRoutes"));
 const governanceRoutes_1 = __importDefault(require("./routes/governanceRoutes"));
+const statutoryComplianceRoutes_1 = __importDefault(require("./routes/statutoryComplianceRoutes"));
 const auth_1 = require("./middleware/auth");
 const photoStorage_1 = require("./services/photoStorage");
 const app = (0, express_1.default)();
@@ -47,6 +48,7 @@ app.use('/api/uploads', express_1.default.static(photoStorage_1.UPLOAD_ROOT, { i
     res.status(404).json({ error: 'Photo not found' });
 });
 app.use('/api/auth', authRoutes_1.default);
+app.use('/api/admin/compliance', ...approved, auth_1.requireAdmin, statutoryComplianceRoutes_1.default);
 app.use('/api/admin', ...approved, auth_1.requireAdmin, adminRoutes_1.default);
 app.use('/api/admin/governance', ...approved, auth_1.requireAdmin, governanceRoutes_1.default);
 app.use('/api/mines', ...approved, mineRoutes_1.default);

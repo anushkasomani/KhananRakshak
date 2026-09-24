@@ -15,19 +15,31 @@ async function governanceAnalytics(options = {}) {
     const mines = options.mineId ? allMines.filter((mine) => mine.id === options.mineId) : allMines;
     const mineIds = mines.map((mine) => mine.id);
     const inScope = { mineId: { in: mineIds } };
-    const [hazards, actions, inspections, incidents, sos, grievances] = await Promise.all([
+    const [hazards, actions, inspections, incidents, sos, grievances, complianceChecks] = await Promise.all([
         db_1.prisma.safetyReport.findMany({ where: inScope, select: { id: true, mineId: true, category: true, severity: true, status: true, zoneId: true, createdAt: true, updatedAt: true, mine: { select: { name: true } }, zone: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 2000 }),
         db_1.prisma.correctiveAction.findMany({ select: { id: true, issueId: true, issueType: true, deadline: true, priority: true, status: true, createdAt: true, completedAt: true } }),
         db_1.prisma.inspection.findMany({ where: inScope, select: { id: true, mineId: true, inspectionType: true, status: true, violationsCount: true, createdAt: true, completedAt: true, deadline: true, mine: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 2000 }),
         db_1.prisma.incident.findMany({ where: inScope, select: { id: true, mineId: true, incidentType: true, severity: true, status: true, createdAt: true, mine: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 1500 }),
         db_1.prisma.sosAlert.findMany({ where: inScope, select: { id: true, mineId: true, emergencyType: true, status: true, triggeredAt: true, resolvedAt: true, mine: { select: { name: true } } }, orderBy: { triggeredAt: 'desc' }, take: 1500 }),
         db_1.prisma.grievance.findMany({ where: inScope, select: { id: true, mineId: true } }),
+        db_1.prisma.complianceCheck.findMany({ where: { mineId: { in: mineIds }, rule: { active: true } }, select: { id: true, mineId: true, ruleId: true, status: true, checkedAt: true }, orderBy: { checkedAt: 'desc' }, take: 5000 }),
     ]);
     const metrics = [];
     const risks = [];
     const recurring = [];
     const anomalies = [];
     const dataWarnings = [];
+    const latestComplianceChecks = new Map();
+    for (const check of complianceChecks) {
+        const key = `${check.mineId}:${check.ruleId}`;
+        if (!latestComplianceChecks.has(key))
+            latestComplianceChecks.set(key, check);
+    }
+    const complianceByMine = mines.map((mine) => {
+        const checks = [...latestComplianceChecks.values()].filter((check) => check.mineId === mine.id);
+        return { mineId: mine.id, mineName: mine.name, total: checks.length, compliant: checks.filter((check) => check.status === 'COMPLIANT').length, nonCompliant: checks.filter((check) => check.status === 'NON_COMPLIANT').length, overdue: checks.filter((check) => check.status === 'OVERDUE').length, partiallyCompliant: checks.filter((check) => check.status === 'PARTIALLY_COMPLIANT').length, insufficientData: checks.filter((check) => check.status === 'INSUFFICIENT_DATA').length };
+    });
+    const complianceSummary = { total: complianceByMine.reduce((sum, row) => sum + row.total, 0), evaluatedMines: complianceByMine.filter((row) => row.total > 0).length, compliant: complianceByMine.reduce((sum, row) => sum + row.compliant, 0), nonCompliant: complianceByMine.reduce((sum, row) => sum + row.nonCompliant, 0), overdue: complianceByMine.reduce((sum, row) => sum + row.overdue, 0), partiallyCompliant: complianceByMine.reduce((sum, row) => sum + row.partiallyCompliant, 0), insufficientData: complianceByMine.reduce((sum, row) => sum + row.insufficientData, 0), byMine: complianceByMine };
     for (const mine of mines) {
         const allMineHazards = hazards.filter((row) => row.mineId === mine.id);
         const openHazards = allMineHazards.filter((row) => row.status !== 'RESOLVED');
@@ -107,6 +119,7 @@ async function governanceAnalytics(options = {}) {
         recurringIssues: recurring.sort((a, b) => b.count - a.count),
         anomalies,
         dataWarnings,
+        complianceSummary,
         evidence: {
             hazards: hazards.slice(0, 500).map((row) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, category: row.category, severity: row.severity, status: row.status, zone: row.zone?.name || null, createdAt: row.createdAt, updatedAt: row.updatedAt })),
             inspections: inspections.slice(0, 500).map((row) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, type: row.inspectionType, status: row.status, violationsCount: row.violationsCount, createdAt: row.createdAt, completedAt: row.completedAt, deadline: row.deadline })),

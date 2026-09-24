@@ -154,6 +154,7 @@ export const GovernanceIntelligencePage: React.FC<Props> = ({ mines }) => {
       <Stat label="Overdue actions" value={summary.overdue} tone={summary.overdue ? 'danger' : 'default'} />
       <Stat label="Inspection violations" value={summary.violations} tone={summary.violations ? 'danger' : 'default'} />
     </div>
+    {data?.complianceSummary && <div className="card flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-xs tracking-wide text-zinc-500">CONFIGURED COMPLIANCE CHECKS</p>{data.complianceSummary.total ? <p className="mt-1 text-sm text-zinc-300">{data.complianceSummary.compliant} compliant · {data.complianceSummary.nonCompliant} non-compliant · {data.complianceSummary.overdue} overdue · {data.complianceSummary.insufficientData} insufficient data</p> : <p className="mt-1 text-sm text-zinc-500">No recent compliance evaluations are available.</p>}</div><Link className="text-xs text-sky-400 hover:underline" to="/admin/compliance">Open statutory compliance</Link></div>}
 
     <div className="card p-4">
       <div className="grid gap-3 sm:grid-cols-2">

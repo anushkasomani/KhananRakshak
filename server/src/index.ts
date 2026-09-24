@@ -19,6 +19,7 @@ import attendanceRoutes from './routes/attendanceRoutes';
 import escalationRoutes from './routes/escalationRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import governanceRoutes from './routes/governanceRoutes';
+import statutoryComplianceRoutes from './routes/statutoryComplianceRoutes';
 import { authenticate, requireApproved, requireAdmin } from './middleware/auth';
 import { UPLOAD_ROOT } from './services/photoStorage';
 
@@ -47,6 +48,7 @@ app.use('/api/uploads', express.static(UPLOAD_ROOT, { index: false, maxAge: '30d
   res.status(404).json({ error: 'Photo not found' });
 });
 app.use('/api/auth', authRoutes);
+app.use('/api/admin/compliance', ...approved, requireAdmin, statutoryComplianceRoutes);
 app.use('/api/admin', ...approved, requireAdmin, adminRoutes);
 app.use('/api/admin/governance', ...approved, requireAdmin, governanceRoutes);
 app.use('/api/mines', ...approved, mineRoutes);

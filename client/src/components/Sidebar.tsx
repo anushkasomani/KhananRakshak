@@ -19,38 +19,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ variant, isOpen = false, onClo
   const { user } = useAuth();
   const items = navFor(user);
   const groups = GROUP_ORDER.map((g) => ({ label: g, items: items.filter((i) => i.group === g) })).filter((g) => g.items.length);
+  const renderItem = ({ to, label, icon: Icon }: NavItem) => (
+    <NavLink
+      key={to}
+      to={to}
+      onClick={onClose}
+      className={({ isActive }) =>
+        `relative flex items-center gap-2.5 ${variant === 'mobile' ? 'h-10' : 'h-8'} px-2.5 rounded-md text-[13px] transition-colors ${
+          isActive ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && <motion.span layoutId={`nav-active-${variant}`} transition={slide} className="absolute inset-0 rounded-md bg-white/[0.07]" />}
+          <Icon className="relative w-4 h-4 shrink-0 opacity-80" />
+          <span className="relative truncate">{label}</span>
+        </>
+      )}
+    </NavLink>
+  );
 
   const nav = (
     <nav className="px-3 py-4 space-y-5">
-      {groups.map((g) => (
-        <div key={g.label || 'main'}>
+      {groups.map((g) => {
+        const topLevel = g.items.filter((item) => !item.subgroup);
+        const subgroups = [...new Set(g.items.map((item) => item.subgroup).filter(Boolean))] as string[];
+        return <div key={g.label || 'main'}>
           {g.label && <div className="px-2.5 mb-1 text-xs text-zinc-500">{g.label}</div>}
           <div className="space-y-px">
-            {g.items.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                onClick={onClose}
-                className={({ isActive }) =>
-                  `relative flex items-center gap-2.5 ${variant === 'mobile' ? 'h-10' : 'h-8'} px-2.5 rounded-md text-[13px] transition-colors ${
-                    isActive ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <motion.span layoutId={`nav-active-${variant}`} transition={slide} className="absolute inset-0 rounded-md bg-white/[0.07]" />
-                    )}
-                    <Icon className="relative w-4 h-4 shrink-0 opacity-80" />
-                    <span className="relative truncate">{label}</span>
-                  </>
-                )}
-              </NavLink>
-            ))}
+            {topLevel.map(renderItem)}
+            {subgroups.map((subgroup) => <div key={subgroup} className="ml-2 mt-2 border-l border-white/[0.08] pl-2">
+              <p className="px-2.5 pb-1 text-[11px] text-zinc-600">{subgroup}</p>
+              <div className="space-y-px">{g.items.filter((item) => item.subgroup === subgroup).map(renderItem)}</div>
+            </div>)}
           </div>
-        </div>
-      ))}
+        </div>;
+      })}
     </nav>
   );
 

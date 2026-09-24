@@ -3,7 +3,7 @@ import { prisma } from '../db';
 
 
 export interface AuditPayload {
-  recordType: 'SAFETY_REPORT' | 'GRIEVANCE' | 'INSPECTION' | 'CORRECTIVE_ACTION' | 'SOS_ALERT' | 'INCIDENT' | 'AI_ANALYSIS';
+  recordType: 'SAFETY_REPORT' | 'GRIEVANCE' | 'INSPECTION' | 'CORRECTIVE_ACTION' | 'SOS_ALERT' | 'INCIDENT' | 'AI_ANALYSIS' | 'COMPLIANCE_EVALUATION' | 'COMPLIANCE_STATUS_CHANGED' | 'COMPLIANCE_RULE_CREATED' | 'COMPLIANCE_RULE_UPDATED';
   recordId: string;
   action: 'CREATED' | 'ESCALATED' | 'STATUS_CHANGED' | 'RESOLVED' | 'VERIFIED' | 'UPDATED';
   performedByRole: string;
