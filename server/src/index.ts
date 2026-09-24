@@ -18,6 +18,9 @@ import adminRoutes from './routes/adminRoutes';
 import attendanceRoutes from './routes/attendanceRoutes';
 import escalationRoutes from './routes/escalationRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
+import shiftRoutes from './routes/shiftRoutes';
+import contractRoutes from './routes/contractRoutes';
+import fieldReportRoutes from './routes/fieldReportRoutes';
 import governanceRoutes from './routes/governanceRoutes';
 import statutoryComplianceRoutes from './routes/statutoryComplianceRoutes';
 import { authenticate, requireApproved, requireAdmin } from './middleware/auth';
@@ -65,6 +68,9 @@ app.use('/api/notifications', ...approved, notificationRoutes);
 app.use('/api/attendance', ...approved, attendanceRoutes);
 app.use('/api/escalations', ...approved, escalationRoutes);
 app.use('/api/dashboard', ...approved, dashboardRoutes);
+app.use('/api/shifts', ...approved, shiftRoutes);
+app.use('/api/contracts', ...approved, contractRoutes);
+app.use('/api/field-reports', ...approved, fieldReportRoutes);
 
 // Global Error Handler
 // Details go to the server log, never to the browser (they can include file paths and query text).

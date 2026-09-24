@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Check, X, Plus, Camera, MapPin } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -37,7 +37,8 @@ export const InspectionsPage: React.FC<{ mines: Mine[] }> = ({ mines }) => {
   const [selectedId, setSelectedId] = useState<string | null>(params.get('open'));
   const [isAssigning, setIsAssigning] = useState(false);
 
-  const canSeeAll = atLeast(user, 'SUPERVISOR');
+  const canSeeAll = atLeast(user, 'SIRDAR');
+  const canAssign = atLeast(user, 'OVERMAN');
   const hasTasks = !!user?.role;
   const [box, setBox] = useState<Box>(user?.isAdmin && !user.role ? 'all' : 'mine');
 
@@ -74,7 +75,7 @@ export const InspectionsPage: React.FC<{ mines: Mine[] }> = ({ mines }) => {
       <PageHeader
         title="Inspections"
         actions={
-          user?.isAdmin && (
+          canAssign && (
             <button onClick={() => setIsAssigning(true)} className="btn-primary">
               <Plus className="w-4 h-4" />
               Assign
@@ -133,7 +134,7 @@ export const InspectionsPage: React.FC<{ mines: Mine[] }> = ({ mines }) => {
 
       {isAssigning && (
         <AssignModal
-          mines={mines}
+          mines={user?.isAdmin || user?.role === 'DGMS' ? mines : mines.filter((m) => m.id === user?.mineId)}
           onClose={() => setIsAssigning(false)}
           onDone={(created) => {
             setIsAssigning(false);
@@ -173,6 +174,9 @@ const InspectionDetail: React.FC<{
             ['Assigned to', i.assignedTo ? `${i.assignedTo.name} · ${describeRole({ ...i.assignedTo, isAdmin: false })}` : i.inspectorName],
             ['Assigned by', i.assignedByName],
             ['Due', i.deadline ? shortDate(i.deadline) : null],
+            ...(i.hazardId
+              ? [['Checks the fix of', <Link to={`/safety-reports?open=${encodeURIComponent(i.hazardId)}`} className="underline">{i.hazardId}</Link>] as [string, React.ReactNode]]
+              : []),
             ...(i.recordHash ? [['Audit record', <TamperProofBadge hash={i.recordHash} recordId={i.id} />] as [string, React.ReactNode]] : []),
           ]}
         />
@@ -395,6 +399,7 @@ const tomorrow = () => {
 };
 
 const AssignModal: React.FC<{ mines: Mine[]; onClose: () => void; onDone: (i: Inspection) => void }> = ({ mines, onClose, onDone }) => {
+  const { user: me } = useAuth();
   const [mineId, setMineId] = useState(mines[0]?.id || '');
   const [people, setPeople] = useState<StaffMember[] | null>(null);
   const [assignedToId, setAssignedToId] = useState('');
@@ -410,7 +415,7 @@ const AssignModal: React.FC<{ mines: Mine[]; onClose: () => void; onDone: (i: In
     setAssignedToId('');
     api
       .getMine(mineId)
-      .then((m) => setPeople((m.users || []).filter((u) => u.role)))
+      .then((m) => setPeople((m.users || []).filter((u) => u.role && u.id !== me?.id)))
       .catch(() => setPeople([]));
   }, [mineId]);
 
@@ -460,7 +465,7 @@ const AssignModal: React.FC<{ mines: Mine[]; onClose: () => void; onDone: (i: In
           </select>
         </Field>
         <Field label="What to inspect (optional)">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Roof bolts, Section B-12" className="input" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Roof bolts, District 2" className="input" />
         </Field>
         <Field label="Due">
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" required />

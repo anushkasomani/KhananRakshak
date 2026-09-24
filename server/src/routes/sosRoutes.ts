@@ -37,7 +37,7 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
     },
     include: {
       mine: { select: { id: true, name: true, code: true } },
-      zone: { select: { id: true, name: true, depthLevel: true, riskFactor: true } }
+      district: { select: { id: true, name: true, location: true } }
     },
     orderBy: { triggeredAt: 'desc' }
   });
@@ -50,7 +50,7 @@ router.get('/history', async (req: AuthenticatedRequest, res) => {
     where: scoped(req),
     include: {
       mine: { select: { id: true, name: true, code: true } },
-      zone: { select: { id: true, name: true, depthLevel: true } }
+      district: { select: { id: true, name: true, location: true } }
     },
     orderBy: { triggeredAt: 'desc' },
     take: 30
@@ -61,7 +61,8 @@ router.get('/history', async (req: AuthenticatedRequest, res) => {
 // POST /api/sos (Trigger Emergency Alert)
 router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { mineId, zoneId, emergencyType, workerIdentifier, locationNotes } = req.body;
+    const { mineId, emergencyType, workerIdentifier, locationNotes } = req.body;
+    const districtId = req.body.districtId || (req.user?.mineId === mineId ? req.user?.districtId : null) || null;
 
     if (!mineId || !emergencyType) {
       return res.status(400).json({ error: 'Mine and emergency type are required' });
@@ -74,7 +75,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       data: {
         id: sosId,
         mineId,
-        zoneId: zoneId || null,
+        districtId,
         emergencyType,
         workerIdentifier: ident,
         triggeredById: req.user?.id || null,
@@ -83,7 +84,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       },
       include: {
         mine: true,
-        zone: true
+        district: true
       }
     });
 
@@ -97,7 +98,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
         sosId: alert.id,
         emergencyType: alert.emergencyType,
         mine: alert.mine.name,
-        zone: alert.zone ? alert.zone.name : 'Unspecified',
+        district: alert.district ? alert.district.name : 'Unspecified',
         timestamp: alert.triggeredAt
       }
     });
@@ -107,7 +108,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
       where: {
         mineId: alert.mineId,
         status: 'APPROVED',
-        role: { in: ['SUPERVISOR', 'OFFICER', 'MINE_MANAGER'] }
+        role: { in: ['SIRDAR', 'OVERMAN', 'OFFICER', 'ASSISTANT_MANAGER', 'MINE_MANAGER'] }
       }
     });
     for (const officer of officers) {
@@ -115,7 +116,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
         data: {
           userId: officer.id,
           title: `SOS: ${alert.emergencyType.replace(/_/g, ' ').toLowerCase()}`,
-          message: `${ident} at ${alert.mine.name}${alert.zone ? `, ${alert.zone.name}` : ''}. Open SOS control to respond.`,
+          message: `${ident} at ${alert.mine.name}${alert.district ? `, ${alert.district.name}` : ''}. Open SOS control to respond.`,
           type: 'SOS'
         }
       });
@@ -129,7 +130,7 @@ router.post('/', optionalAuthenticate, async (req: AuthenticatedRequest, res: Re
 });
 
 // PATCH /api/sos/:id/status (Transition Status in Control Room)
-router.patch('/:id/status', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/:id/status', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, assignedTeams, responderNotes } = req.body;
     const sosId = String(req.params.id);
@@ -156,7 +157,7 @@ router.patch('/:id/status', requireLevel('SUPERVISOR'), async (req: Authenticate
     const updated = await prisma.sosAlert.update({
       where: { id: sosId },
       data: dataToUpdate,
-      include: { mine: true, zone: true }
+      include: { mine: true, district: true }
     });
 
     // Record to Audit Chain

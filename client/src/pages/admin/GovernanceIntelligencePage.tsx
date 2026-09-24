@@ -192,7 +192,7 @@ export const GovernanceIntelligencePage: React.FC<Props> = ({ mines }) => {
     </Section>
 
     <Section title="Recurring open hazards">
-      <div className="card divide-y divide-white/[0.06]">{data?.recurringIssues.length ? data.recurringIssues.map((issue) => <div className="p-4" key={`${issue.mineId}-${issue.issue}-${issue.location}`}><p className="text-sm text-zinc-200">{issue.issue} · {issue.mineName} · {issue.location} <span className="text-zinc-500">({issue.count} open records)</span></p><p className="mt-1 text-xs text-zinc-500">Same mine, category and zone during the selected period · {new Date(issue.firstSeen).toLocaleDateString()} – {new Date(issue.lastSeen).toLocaleDateString()}</p><div className="mt-2 text-xs"><EvidenceLinks ids={issue.evidenceIds}/></div></div>) : <p className="p-4 text-sm text-zinc-500">No repeated open hazard groups found in this period.</p>}</div>
+      <div className="card divide-y divide-white/[0.06]">{data?.recurringIssues.length ? data.recurringIssues.map((issue) => <div className="p-4" key={`${issue.mineId}-${issue.issue}-${issue.location}`}><p className="text-sm text-zinc-200">{issue.issue} · {issue.mineName} · {issue.location} <span className="text-zinc-500">({issue.count} open records)</span></p><p className="mt-1 text-xs text-zinc-500">Same mine, category and district during the selected period · {new Date(issue.firstSeen).toLocaleDateString()} – {new Date(issue.lastSeen).toLocaleDateString()}</p><div className="mt-2 text-xs"><EvidenceLinks ids={issue.evidenceIds}/></div></div>) : <p className="p-4 text-sm text-zinc-500">No repeated open hazard groups found in this period.</p>}</div>
     </Section>
 
     <div className="grid gap-4 xl:grid-cols-2">

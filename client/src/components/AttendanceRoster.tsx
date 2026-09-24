@@ -55,7 +55,11 @@ export const RosterList: React.FC<{
                   <p className="text-sm text-zinc-200 truncate">{p.name}</p>
                   <p className="mt-0.5 text-xs text-zinc-500 truncate">
                     {describeRole({ ...p, isAdmin: false })}
+                    {p.contract && ` · ${p.contract.contractor.name}`}
                     {p.badgeNumber && ` · ${p.badgeNumber}`}
+                    {p.contract && (!p.trainingValidUntil || new Date(p.trainingValidUntil).getTime() < Date.now()) && (
+                      <span className="text-red-400"> · training expired</span>
+                    )}
                   </p>
                 </div>
                 {a ? (

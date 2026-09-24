@@ -13,6 +13,12 @@ export interface AuthUser {
   officerType?: string | null;
   phone?: string | null;
   mineId?: string | null;
+  districtId?: string | null;
+  shift?: string | null;
+  contractId?: string | null;
+  trainingValidUntil?: Date | null;
+  shiftStartHour: number; // of their mine
+  mineIds?: string[]; // OWNER: every mine of their company
   badgeNumber?: string | null;
   isAdmin: boolean;
   status: string;
@@ -29,8 +35,15 @@ export function generateToken(user: { id: string }): string {
 // Role and approval come from the database on every request, so admin changes apply immediately.
 async function loadUser(token: string): Promise<AuthUser | null> {
   const { id } = jwt.verify(token, JWT_SECRET) as { id: string };
-  const user = await prisma.user.findUnique({ where: { id } });
+  const user = await prisma.user.findUnique({ where: { id }, include: { mine: { select: { company: true, shiftStartHour: true } } } });
   if (!user) return null;
+  // An Owner / Agent answers for every mine their company holds; mines without a company stand alone.
+  const mineIds =
+    user.role === 'OWNER' && user.mineId
+      ? user.mine?.company
+        ? (await prisma.mine.findMany({ where: { company: user.mine.company }, select: { id: true } })).map((m) => m.id)
+        : [user.mineId]
+      : undefined;
   return {
     id: user.id,
     email: user.email,
@@ -39,6 +52,12 @@ async function loadUser(token: string): Promise<AuthUser | null> {
     officerType: user.officerType,
     phone: user.phone,
     mineId: user.mineId,
+    districtId: user.districtId,
+    shift: user.shift,
+    contractId: user.contractId,
+    trainingValidUntil: user.trainingValidUntil,
+    shiftStartHour: user.mine?.shiftStartHour ?? 6,
+    mineIds,
     badgeNumber: user.badgeNumber,
     isAdmin: user.isAdmin,
     status: user.status,
@@ -98,14 +117,22 @@ export function requireLevel(min: Role) {
 export const actorRole = (req: AuthenticatedRequest, fallback = 'SYSTEM') =>
   req.user ? req.user.role || (req.user.isAdmin ? 'ADMIN' : fallback) : fallback;
 
-/** DGMS and admins see every mine; everyone else only sees their own. Returns the mineId to filter by, or undefined for all. */
-export const mineScope = (req: AuthenticatedRequest): string | undefined => {
+/**
+ * DGMS and admins see every mine, an Owner sees their company's mines, everyone else only their own.
+ * Returns a Prisma filter for mineId, or undefined for all.
+ */
+export const mineScope = (req: AuthenticatedRequest): string | { in: string[] } | undefined => {
   const u = req.user;
   if (u && (u.isAdmin || u.role === 'DGMS')) return undefined;
+  if (u?.mineIds) return { in: u.mineIds };
   return u?.mineId || 'NO_MINE';
 };
 
 export const canSeeMine = (req: AuthenticatedRequest, mineId: string) => {
   const scope = mineScope(req);
-  return !scope || scope === mineId;
+  return !scope || (typeof scope === 'string' ? scope === mineId : scope.in.includes(mineId));
 };
+
+/** The mineId filter for a list: the mine asked for, if the user may see it, otherwise everything they may see. */
+export const mineFilter = (req: AuthenticatedRequest, requested?: unknown) =>
+  requested && canSeeMine(req, String(requested)) ? String(requested) : mineScope(req);

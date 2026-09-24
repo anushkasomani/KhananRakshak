@@ -31,6 +31,7 @@ const EMPTY_FORM = {
   description: '',
   peopleAffected: '0',
   immediateResponse: '',
+  contractId: '',
 };
 
 export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
@@ -94,6 +95,7 @@ export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
         ...form,
         peopleAffected: Number(form.peopleAffected) || 0,
         immediateResponse: form.immediateResponse || undefined,
+        contractId: form.contractId || undefined,
       });
       setIsLogging(false);
       await load();
@@ -134,7 +136,8 @@ export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-zinc-200 truncate">{inc.description}</p>
                 <p className="mt-0.5 text-xs text-zinc-500 truncate">
-                  {titleCase(inc.incidentType)} · {inc.mine?.name} · {shortDate(inc.createdAt)}
+                  {titleCase(inc.incidentType)} · {inc.mine?.name}
+                  {inc.contract && ` · ${inc.contract.contractor.name}`} · {shortDate(inc.createdAt)}
                 </p>
               </div>
               <StatusPill status={inc.status} />
@@ -148,7 +151,7 @@ export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
           <form onSubmit={submit} className="p-5 space-y-4">
             {(!user?.mineId || user.isAdmin) && (
               <Field label="Mine">
-                <select value={form.mineId} onChange={(e) => setForm({ ...form, mineId: e.target.value })} className="input">
+                <select value={form.mineId} onChange={(e) => setForm({ ...form, mineId: e.target.value, contractId: '' })} className="input">
                   {mines.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -193,6 +196,20 @@ export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
                 />
               </Field>
             </div>
+            {(mines.find((m) => m.id === form.mineId)?.contracts || []).length > 0 && (
+              <Field label="Contractor involved (optional)">
+                <select value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })} className="input">
+                  <option value="">None, the mine's own staff</option>
+                  {mines
+                    .find((m) => m.id === form.mineId)
+                    ?.contracts?.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.contractor.name} · {c.title}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            )}
             <Field label="What happened?">
               <textarea
                 required
@@ -238,6 +255,7 @@ export const IncidentsPage: React.FC<IncidentsPageProps> = ({ mines }) => {
                 ['People affected', String(selected.peopleAffected)],
                 ['Response', selected.immediateResponse],
                 ['Logged by', selected.reportedByName],
+                ['Contractor', selected.contract ? `${selected.contract.contractor.name} · ${selected.contract.title}` : null],
                 ['Date', shortDate(selected.createdAt)],
               ]}
             />

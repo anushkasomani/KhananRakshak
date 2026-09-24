@@ -98,7 +98,7 @@ export const SosControlRoomPage: React.FC<SosControlRoomPageProps> = ({ onOpenSo
         <p className="text-sm text-zinc-200 truncate">{titleCase(a.emergencyType)}</p>
         <p className="mt-0.5 text-xs text-zinc-500 truncate">
           {a.mine?.name}
-          {a.zone?.name ? ` · ${a.zone.name}` : ''} · {time(a.triggeredAt)}
+          {a.district?.name ? ` · ${a.district.name}` : ''} · {time(a.triggeredAt)}
         </p>
       </div>
       <StatusPill status={a.status} />
@@ -155,7 +155,7 @@ export const SosControlRoomPage: React.FC<SosControlRoomPageProps> = ({ onOpenSo
             <DetailRows
               rows={[
                 ['Mine', selected.mine?.name],
-                ['Zone', selected.zone ? `${selected.zone.name}${selected.zone.depthLevel ? ` · ${selected.zone.depthLevel}` : ''}` : 'Unknown'],
+                ['District', selected.district ? `${selected.district.name}${selected.district.location ? ` · ${selected.district.location}` : ''}` : 'Not given'],
                 [
                   'Reported by',
                   <span className="inline-flex items-center gap-2">
@@ -181,7 +181,7 @@ export const SosControlRoomPage: React.FC<SosControlRoomPageProps> = ({ onOpenSo
               recordType="SOS"
               recordId={selected.id}
               mineId={selected.mineId}
-              summary={`SOS: ${titleCase(selected.emergencyType)}${selected.zone ? ` · ${selected.zone.name}` : ''}`}
+              summary={`SOS: ${titleCase(selected.emergencyType)}${selected.district ? ` · ${selected.district.name}` : ''}`}
               severe={selected.status !== 'RESOLVED'}
             />
 

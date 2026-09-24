@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/corrective-actions
-router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { issueId, issueType, actionRequired, responsiblePerson, deadline, priority, evidence } = req.body;
 
@@ -79,7 +79,7 @@ router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, r
 });
 
 // PATCH /api/corrective-actions/:id
-router.patch('/:id', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/:id', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, evidence, verifiedBy } = req.body;
     const actId = String(req.params.id);
@@ -101,7 +101,7 @@ router.patch('/:id', requireLevel('SUPERVISOR'), async (req: AuthenticatedReques
       recordType: 'CORRECTIVE_ACTION',
       recordId: actId,
       action: status === 'COMPLETED' ? 'RESOLVED' : 'STATUS_CHANGED',
-      performedByRole: actorRole(req, 'SUPERVISOR'),
+      performedByRole: actorRole(req, 'SIRDAR'),
       data: {
         id: actId,
         newStatus: status,

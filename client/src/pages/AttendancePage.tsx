@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { AttendanceRecord, Mine, MineAttendance } from '../types';
-import { atLeast } from '../roles';
+import { atLeast, SHIFTS, minesFor } from '../roles';
 import { formatTime, formatDuration } from '../attendance';
 import { PageHeader, Section, Stat, Empty, Tabs, ListSkeleton } from '../components/ui';
 import { AttendanceCard } from '../components/AttendanceCard';
@@ -20,7 +20,7 @@ const longDate = (date: string) =>
 
 export const AttendancePage: React.FC<{ mines: Mine[] }> = ({ mines }) => {
   const { user } = useAuth();
-  return atLeast(user, 'SUPERVISOR') ? <MineAttendanceView mines={mines} /> : <MyAttendanceView />;
+  return atLeast(user, 'SIRDAR') ? <MineAttendanceView mines={mines} /> : <MyAttendanceView />;
 };
 
 const MyAttendanceView: React.FC = () => {
@@ -66,9 +66,14 @@ type Filter = 'absent' | 'present' | 'all';
 
 const MineAttendanceView: React.FC<{ mines: Mine[] }> = ({ mines }) => {
   const { user } = useAuth();
-  const canPickMine = !!user && (user.isAdmin || user.role === 'DGMS' || !user.mineId);
+  const choices = minesFor(user, mines);
+  const canPickMine = choices.length > 1;
   const [mineId, setMineId] = useState(user?.mineId || '');
   const [date, setDate] = useState<string | undefined>(undefined);
+  // A Sirdar starts on their own crew, an Overman on their own shift; both can widen the view.
+  const [shift, setShift] = useState(user?.role === 'SIRDAR' || user?.role === 'OVERMAN' ? user.shift || '' : '');
+  const [districtId, setDistrictId] = useState(user?.role === 'SIRDAR' ? user.districtId || '' : '');
+  const districts = mines.find((m) => m.id === mineId)?.districts || [];
   const [data, setData] = useState<MineAttendance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('absent');
@@ -83,13 +88,13 @@ const MineAttendanceView: React.FC<{ mines: Mine[] }> = ({ mines }) => {
     let cancelled = false;
     setError(null);
     api
-      .getMineAttendance(mineId, date)
+      .getMineAttendance(mineId, { date, shift: shift || undefined, districtId: districtId || undefined })
       .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;
     };
-  }, [mineId, date, reloadKey]);
+  }, [mineId, date, shift, districtId, reloadKey]);
 
   const shown = data && data.mine.id === mineId ? data : null;
   const isToday = !!shown && shown.date === shown.today;
@@ -105,8 +110,15 @@ const MineAttendanceView: React.FC<{ mines: Mine[] }> = ({ mines }) => {
         description={shown?.mine.name}
         actions={
           canPickMine && (
-            <select value={mineId} onChange={(e) => setMineId(e.target.value)} className="input w-auto max-w-[16rem]">
-              {mines.map((m) => (
+            <select
+              value={mineId}
+              onChange={(e) => {
+                setMineId(e.target.value);
+                setDistrictId('');
+              }}
+              className="input w-auto max-w-[16rem]"
+            >
+              {choices.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
@@ -115,6 +127,25 @@ const MineAttendanceView: React.FC<{ mines: Mine[] }> = ({ mines }) => {
           )
         }
       />
+
+      <div className="flex flex-wrap gap-2">
+        <select value={districtId} onChange={(e) => setDistrictId(e.target.value)} className="input w-auto" aria-label="District">
+          <option value="">All districts</option>
+          {districts.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        <select value={shift} onChange={(e) => setShift(e.target.value)} className="input w-auto" aria-label="Shift">
+          <option value="">All shifts and staff</option>
+          {SHIFTS.map((s) => (
+            <option key={s} value={s}>
+              Shift {s}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 

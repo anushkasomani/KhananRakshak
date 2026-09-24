@@ -16,6 +16,16 @@ import {
   EscalationRecipient,
   MineDashboard,
   MinesOverview,
+  MyShift,
+  ShiftBoard,
+  Contract,
+  ContractDetail,
+  FieldReport,
+  Contractor,
+  ShiftReport,
+  CheckKey,
+  DistrictStatus,
+  Shift,
 } from '../types';
 
 const API_BASE = '/api';
@@ -52,11 +62,18 @@ export interface OnboardingInput {
   officerType?: string;
   trade?: string;
   mineId?: string;
+  districtId?: string;
+  shift?: string;
+  contractId?: string;
+  trainingValidUntil?: string;
   badgeNumber?: string;
 }
 
 export interface MineInput {
   name?: string;
+  company?: string;
+  shiftStartHour?: number;
+  districts?: { id?: string; name: string; location?: string }[];
   code?: string;
   locality?: string;
   state?: string;
@@ -137,7 +154,8 @@ export const api = {
   googleLogin: (credential: string) =>
     request<{ token: string; user: User }>('/auth/google', { method: 'POST', body: { credential }, auth: false }),
   getMe: () => request<User>('/auth/me'),
-  getOnboardingMines: () => request<Pick<Mine, 'id' | 'name' | 'locality' | 'state'>[]>('/auth/onboarding/mines'),
+  getOnboardingMines: () =>
+    request<Pick<Mine, 'id' | 'name' | 'locality' | 'state' | 'districts' | 'contracts' | 'shiftStartHour'>[]>('/auth/onboarding/mines'),
   submitOnboarding: (data: OnboardingInput) => request<User>('/auth/onboarding', { method: 'POST', body: data }),
 
   // Admin
@@ -164,10 +182,43 @@ export const api = {
   getMyAttendance: () => request<MyAttendance>('/attendance/me'),
   checkIn: (reading: GpsReading) => request<AttendanceRecord>('/attendance/check-in', { method: 'POST', body: reading }),
   checkOut: (reading: GpsReading) => request<AttendanceRecord>('/attendance/check-out', { method: 'POST', body: reading }),
-  getMineAttendance: (mineId: string, date?: string) =>
-    request<MineAttendance>(`/attendance/mine/${mineId}${toQuery({ date })}`),
+  getMineAttendance: (mineId: string, params: { date?: string; shift?: string; districtId?: string } = {}) =>
+    request<MineAttendance>(`/attendance/mine/${mineId}${toQuery(params)}`),
   markPresent: (userId: string, note: string) => request<AttendanceRecord>('/attendance/mark', { method: 'POST', body: { userId, note } }),
   undoMark: (recordId: string) => request(`/attendance/mark/${recordId}`, { method: 'DELETE' }),
+
+  // Shifts: the Sirdar's pre-shift inspection, handover, and the Overman's view of every district
+  getMyShift: () => request<MyShift | null>('/shifts/me'),
+  submitShiftReport: (data: {
+    checks: Record<CheckKey, { ok: boolean; note?: string }>;
+    methanePct?: number;
+    status: DistrictStatus;
+    restrictions?: string;
+    notes?: string;
+  }) => request<ShiftReport>('/shifts/reports', { method: 'POST', body: data }),
+  changeDistrictStatus: (id: string, data: { status: DistrictStatus; restrictions?: string; note: string }) =>
+    request<ShiftReport>(`/shifts/reports/${id}/status`, { method: 'PATCH', body: data }),
+  markShiftReportSeen: (id: string, note?: string) => request<ShiftReport>(`/shifts/reports/${id}/seen`, { method: 'POST', body: { note } }),
+  writeHandover: (id: string, note: string) => request<ShiftReport>(`/shifts/reports/${id}/handover`, { method: 'POST', body: { note } }),
+  getShiftBoard: (params: { mineId?: string; date?: string; shift?: Shift } = {}) => request<ShiftBoard>(`/shifts/board${toQuery(params)}`),
+
+  // Contractors and contracts
+  getContracts: (params: { mineId?: string; status?: string } = {}) => request<Contract[]>(`/contracts${toQuery(params)}`),
+  getContract: (id: string) => request<ContractDetail>(`/contracts/${encodeURIComponent(id)}`),
+  getContractors: () => request<Contractor[]>('/contracts/contractors'),
+  createContract: (data: Record<string, unknown>) => request<Contract>('/contracts', { method: 'POST', body: data }),
+  updateContract: (id: string, data: Record<string, unknown>) =>
+    request<Contract>(`/contracts/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+
+  // Specialists' reports
+  getFieldReports: (params: { mineId?: string; type?: string; status?: string; mine?: '1' } = {}) =>
+    request<FieldReport[]>(`/field-reports${toQuery(params)}`),
+  getFieldReport: (id: string) => request<FieldReport>(`/field-reports/${encodeURIComponent(id)}`),
+  submitFieldReport: (data: Record<string, unknown>) => request<FieldReport>('/field-reports', { method: 'POST', body: data }),
+  updateFieldReport: (id: string, data: Record<string, unknown>) =>
+    request<FieldReport>(`/field-reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: data }),
+  reviewFieldReport: (id: string, decision: 'REVIEWED' | 'RETURNED', note?: string) =>
+    request<FieldReport>(`/field-reports/${encodeURIComponent(id)}/review`, { method: 'POST', body: { decision, note } }),
 
   // Role dashboards
   getMineDashboard: (mineId: string, withTrends = false) =>
@@ -188,19 +239,23 @@ export const api = {
   acknowledgeEscalation: (id: string) => request<Escalation>(`/escalations/${id}/acknowledge`, { method: 'POST' }),
 
   // Safety reports
-  getSafetyReports: (params?: { mineId?: string; severity?: string; status?: string }) =>
+  getSafetyReports: (params?: { mineId?: string; districtId?: string; severity?: string; status?: string }) =>
     request<SafetyReport[]>(`/safety-reports${toQuery(params)}`),
   createSafetyReport: (data: {
     mineId: string;
-    zoneId?: string;
+    districtId?: string;
     category: string;
     severity: string;
     description: string;
     immediateActionTaken?: string;
     imageUrl?: string;
   }) => request('/safety-reports', { method: 'POST', body: data }),
-  updateSafetyReportStatus: (id: string, data: { status: string; assignedOfficer?: string; correctiveActionText?: string }) =>
-    request(`/safety-reports/${id}/status`, { method: 'PATCH', body: data }),
+  acknowledgeHazard: (id: string) => request<SafetyReport>(`/safety-reports/${id}/acknowledge`, { method: 'POST' }),
+  markHazardFixed: (id: string, note: string) => request<SafetyReport>(`/safety-reports/${id}/fixed`, { method: 'POST', body: { note } }),
+  verifyHazardFix: (id: string, decision: 'CONFIRM' | 'REOPEN', note?: string) =>
+    request<{ report: SafetyReport; awardedPoints: number }>(`/safety-reports/${id}/verify`, { method: 'POST', body: { decision, note } }),
+  sendHazardInspection: (id: string, data: { assignedToId: string; dueDate: string; note?: string }) =>
+    request<SafetyReport>(`/safety-reports/${id}/inspection`, { method: 'POST', body: data }),
 
   // Grievances
   getGrievances: (params?: { mineId?: string; status?: string }) => request<Grievance[]>(`/grievances${toQuery(params)}`),
@@ -213,7 +268,7 @@ export const api = {
     request(`/grievances/${encodeURIComponent(id)}/respond`, { method: 'POST', body: data }),
 
   // SOS
-  triggerSos: (data: { mineId: string; zoneId?: string; emergencyType: string; workerIdentifier?: string; locationNotes?: string }) =>
+  triggerSos: (data: { mineId: string; districtId?: string; emergencyType: string; workerIdentifier?: string; locationNotes?: string }) =>
     request('/sos', { method: 'POST', body: data }),
   getActiveSos: () => request<SosAlert[]>('/sos/active'),
   getSosHistory: () => request<SosAlert[]>('/sos/history'),
@@ -247,6 +302,7 @@ export const api = {
     description: string;
     peopleAffected?: number;
     immediateResponse?: string;
+    contractId?: string;
   }) => request<{ incident: Incident }>('/incidents', { method: 'POST', body: data }),
 
   // Compliance

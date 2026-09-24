@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest, AuthUser, requireLevel, canSeeMine } from '../middleware/auth';
 import { ROLES, roleLevel } from '../roles';
-import { distanceMeters, indiaDate, isDateString, recentDates } from '../geo';
+import { distanceMeters, isDateString, recentDates } from '../geo';
+import { shiftDate, currentShift, shiftLabel, isShift } from '../shifts';
 import { prisma } from '../db';
 
 const router = Router();
@@ -15,7 +16,21 @@ const maxAccuracyFor = (radius: number) => Math.max(MAX_ACCURACY_M, radius / 10)
 const MAX_OFFLINE_AGE_MS = 12 * 3600 * 1000; // queued check-ins older than a shift are rejected
 const LATE_SYNC_MS = 5 * 60 * 1000;
 
-const PERSON_SELECT = { id: true, name: true, role: true, officerType: true, trade: true, badgeNumber: true, phone: true } as const;
+const PERSON_SELECT = {
+  id: true,
+  name: true,
+  role: true,
+  officerType: true,
+  trade: true,
+  specialistType: true,
+  shift: true,
+  districtId: true,
+  district: { select: { id: true, name: true } },
+  contract: { select: { id: true, title: true, contractor: { select: { name: true } } } },
+  trainingValidUntil: true,
+  badgeNumber: true,
+  phone: true,
+} as const;
 const RECORD_SELECT = {
   id: true,
   date: true,
@@ -34,6 +49,55 @@ const RECORD_SELECT = {
 /** A person can be marked present by someone above them in the hierarchy (or an admin), never by themselves. */
 const canMark = (actor: AuthUser, target: { id: string; role: string | null }) =>
   actor.id !== target.id && (actor.isAdmin || roleLevel(actor.role) > roleLevel(target.role));
+
+type Person = {
+  role: string | null;
+  districtId?: string | null;
+  shift?: string | null;
+  contractId?: string | null;
+  trainingValidUntil?: Date | null;
+};
+
+/**
+ * Contract workers can work only while their contract is active and their vocational training is valid.
+ * The owner and manager stay responsible for them, so the app checks this the same way for every contractor.
+ */
+export async function employmentProblem(person: Person, now: Date = new Date()) {
+  if (!person.contractId) return null;
+  const contract = await prisma.contract.findUnique({ where: { id: person.contractId }, include: { contractor: true } });
+  if (!contract) return null;
+  const endOfLastDay = new Date(contract.endDate.getTime() + 86400000);
+  if (contract.status !== 'ACTIVE' || now < contract.startDate || now >= endOfLastDay) {
+    return `The ${contract.contractor.name} contract "${contract.title}" is not active right now, so its workers can't be checked in. Ask the contractor or the mine office.`;
+  }
+  if (!person.trainingValidUntil) {
+    return 'Your vocational training certificate is not on record. Contract workers need it before they can work. Ask your contractor to send it to the mine office.';
+  }
+  if (person.trainingValidUntil < now) {
+    return `Your vocational training certificate expired on ${person.trainingValidUntil.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}. Get it renewed before working.`;
+  }
+  return null;
+}
+
+/**
+ * A worker can start work only after the Sirdar of their district has done the pre-shift inspection
+ * for that shift and not declared the district unsafe. Returns the reason they can't, or null.
+ */
+export async function clearanceProblem(person: Person, date: string) {
+  if (person.role !== 'WORKER' || !person.districtId || !person.shift) return null;
+  const report = await prisma.shiftReport.findUnique({
+    where: { districtId_date_shift: { districtId: person.districtId, date, shift: person.shift } },
+    include: { district: { select: { name: true } }, sirdar: { select: { name: true } } },
+  });
+  if (!report) {
+    const district = await prisma.district.findUnique({ where: { id: person.districtId }, select: { name: true } });
+    return `The Sirdar has not cleared ${district?.name || 'your district'} for ${shiftLabel(person.shift)} yet. Wait for the pre-shift inspection.`;
+  }
+  if (report.status === 'UNSAFE') {
+    return `${report.sirdar.name} has declared ${report.district.name} unsafe for this shift. Do not go in. Wait for instructions.`;
+  }
+  return null;
+}
 
 type Reading = { lat: number; lng: number; accuracy: number | null; capturedAt: Date; syncedLate: boolean };
 
@@ -63,7 +127,7 @@ async function mineFor(req: AuthenticatedRequest) {
   if (!req.user?.mineId) return null;
   const mine = await prisma.mine.findUnique({
     where: { id: req.user.mineId },
-    select: { id: true, name: true, latitude: true, longitude: true, radiusMeters: true },
+    select: { id: true, name: true, latitude: true, longitude: true, radiusMeters: true, shiftStartHour: true },
   });
   return mine && { ...mine, radiusMeters: effectiveRadius(mine.radiusMeters) };
 }
@@ -77,7 +141,7 @@ router.get('/me', async (req: AuthenticatedRequest, res: Response) => {
     orderBy: { date: 'desc' },
     take: 30,
   });
-  const today = indiaDate();
+  const today = shiftDate(req.user!.shift, new Date(), req.user!.shiftStartHour);
   return res.json({ date: today, mine, today: history.find((r) => r.date === today) || null, history });
 });
 
@@ -102,9 +166,12 @@ router.post('/check-in', async (req: AuthenticatedRequest, res: Response) => {
     });
   }
 
-  const date = indiaDate(r.capturedAt);
+  const date = shiftDate(req.user!.shift, r.capturedAt, mine.shiftStartHour);
   const existing = await prisma.attendance.findUnique({ where: { userId_date: { userId: req.user!.id, date } }, select: RECORD_SELECT });
   if (existing) return res.status(200).json(existing);
+
+  const blocked = (await employmentProblem(req.user!, r.capturedAt)) || (await clearanceProblem(req.user!, date));
+  if (blocked) return res.status(409).json({ error: blocked });
 
   const record = await prisma.attendance.create({
     data: {
@@ -130,9 +197,9 @@ router.post('/check-out', async (req: AuthenticatedRequest, res: Response) => {
   if (error) return res.status(400).json({ error });
   const r = reading!;
 
-  const date = indiaDate(r.capturedAt);
+  const date = shiftDate(req.user!.shift, r.capturedAt, req.user!.shiftStartHour);
   const existing = await prisma.attendance.findUnique({ where: { userId_date: { userId: req.user!.id, date } } });
-  if (!existing) return res.status(400).json({ error: 'You have not checked in today.' });
+  if (!existing) return res.status(400).json({ error: 'You have not checked in for this shift.' });
   if (existing.checkOutAt) {
     return res.json(await prisma.attendance.findUnique({ where: { id: existing.id }, select: RECORD_SELECT }));
   }
@@ -151,21 +218,23 @@ router.post('/check-out', async (req: AuthenticatedRequest, res: Response) => {
   return res.json(record);
 });
 
-// POST /api/attendance/mark  { userId, note }  (supervisor marks someone present today without GPS, e.g. phone died)
-router.post('/mark', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+// POST /api/attendance/mark  { userId, note }  (Sirdar or above marks someone present without GPS, e.g. phone died)
+router.post('/mark', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   const actor = req.user!;
   const note = String(req.body?.note || '').trim();
   if (note.length < 3) return res.status(400).json({ error: 'Give a reason, for example "phone battery dead".' });
   if (note.length > 200) return res.status(400).json({ error: 'Keep the reason under 200 characters.' });
 
-  const target = await prisma.user.findUnique({ where: { id: String(req.body?.userId || '') } });
+  const target = await prisma.user.findUnique({ where: { id: String(req.body?.userId || '') }, include: { mine: { select: { shiftStartHour: true } } } });
   if (!target || target.status !== 'APPROVED' || !target.mineId) return res.status(404).json({ error: 'Person not found.' });
   if (!canSeeMine(req, target.mineId)) return res.status(403).json({ error: 'This person works at another mine.' });
   if (!canMark(actor, target)) return res.status(403).json({ error: 'You can only mark people below you in the hierarchy.' });
 
-  const date = indiaDate();
+  const date = shiftDate(target.shift, new Date(), target.mine?.shiftStartHour);
   const existing = await prisma.attendance.findUnique({ where: { userId_date: { userId: target.id, date } }, select: RECORD_SELECT });
-  if (existing) return res.status(409).json({ error: `${target.name} is already checked in today.` });
+  if (existing) return res.status(409).json({ error: `${target.name} is already checked in for this shift.` });
+  const blocked = (await employmentProblem(target)) || (await clearanceProblem(target, date));
+  if (blocked) return res.status(409).json({ error: blocked });
 
   const record = await prisma.attendance.create({
     data: {
@@ -187,11 +256,11 @@ router.post('/mark', requireLevel('SUPERVISOR'), async (req: AuthenticatedReques
 });
 
 // DELETE /api/attendance/mark/:id  (undo a manual mark from today)
-router.delete('/mark/:id', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
-  const record = await prisma.attendance.findUnique({ where: { id: String(req.params.id) }, include: { user: true } });
+router.delete('/mark/:id', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
+  const record = await prisma.attendance.findUnique({ where: { id: String(req.params.id) }, include: { user: true, mine: { select: { shiftStartHour: true } } } });
   if (!record) return res.status(404).json({ error: 'Record not found.' });
   if (record.source !== 'MANUAL') return res.status(400).json({ error: 'Only manual marks can be undone. GPS check-ins stay on record.' });
-  if (record.date !== indiaDate()) return res.status(400).json({ error: "Only today's marks can be undone." });
+  if (record.date !== shiftDate(record.user.shift, new Date(), record.mine.shiftStartHour)) return res.status(400).json({ error: 'Only marks from the current shift can be undone.' });
   if (!canSeeMine(req, record.mineId) || !canMark(req.user!, record.user)) {
     return res.status(403).json({ error: 'You cannot change this record.' });
   }
@@ -199,26 +268,28 @@ router.delete('/mark/:id', requireLevel('SUPERVISOR'), async (req: Authenticated
   return res.json({ ok: true });
 });
 
-// GET /api/attendance/mine/:mineId?date=YYYY-MM-DD  (supervisor and above; own mine unless DGMS or admin)
-router.get('/mine/:mineId', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+// GET /api/attendance/mine/:mineId?date=YYYY-MM-DD&shift=&districtId=  (Sirdar and above; own mine unless DGMS or admin)
+router.get('/mine/:mineId', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   const mineId = String(req.params.mineId);
-  const u = req.user!;
-  if (!u.isAdmin && u.role !== 'DGMS' && u.mineId !== mineId) {
-    return res.status(403).json({ error: 'You can only view attendance for your own mine.' });
-  }
-  const date = isDateString(req.query.date) ? req.query.date : indiaDate();
-
+  if (!canSeeMine(req, mineId)) return res.status(403).json({ error: 'You can only view attendance for your own mine.' });
   const mine = await prisma.mine.findUnique({
     where: { id: mineId },
-    select: { id: true, name: true, latitude: true, longitude: true, radiusMeters: true },
+    select: { id: true, name: true, latitude: true, longitude: true, radiusMeters: true, shiftStartHour: true },
   });
   if (!mine) return res.status(404).json({ error: 'Mine not found' });
 
+  const today = currentShift(new Date(), mine.shiftStartHour).date;
+  const date = isDateString(req.query.date) ? req.query.date : today;
+  const shift = isShift(req.query.shift) ? req.query.shift : undefined;
+  const districtId = req.query.districtId ? String(req.query.districtId) : undefined;
+  // A shift filter keeps the people without a shift (officers, managers) out; a district filter keeps only that crew.
+  const staffWhere = { mineId, status: 'APPROVED', role: { not: null }, ...(shift ? { shift } : {}), ...(districtId ? { districtId } : {}) };
+
   const trendDates = recentDates(7, new Date(`${date}T12:00:00+05:30`));
   const [staff, records, trendRows] = await Promise.all([
-    prisma.user.findMany({ where: { mineId, status: 'APPROVED', role: { not: null } }, select: PERSON_SELECT }),
+    prisma.user.findMany({ where: staffWhere, select: PERSON_SELECT }),
     prisma.attendance.findMany({ where: { mineId, date }, select: { ...RECORD_SELECT, userId: true } }),
-    prisma.attendance.groupBy({ by: ['date'], where: { mineId, date: { in: trendDates } }, _count: { _all: true } }),
+    prisma.attendance.groupBy({ by: ['date'], where: { mineId, date: { in: trendDates }, user: staffWhere }, _count: { _all: true } }),
   ]);
 
   const byUser = new Map(records.map(({ userId, ...rec }) => [userId, rec]));
@@ -230,7 +301,7 @@ router.get('/mine/:mineId', requireLevel('SUPERVISOR'), async (req: Authenticate
 
   return res.json({
     date,
-    today: indiaDate(),
+    today,
     mine,
     people,
     summary: { total: people.length, present: people.filter((p) => p.attendance).length },

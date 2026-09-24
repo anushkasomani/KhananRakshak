@@ -16,7 +16,7 @@ export async function governanceAnalytics(options: { mineId?: string; periodDays
   const mineIds = mines.map((mine) => mine.id);
   const inScope = { mineId: { in: mineIds } };
   const [hazards, actions, inspections, incidents, sos, grievances, complianceChecks] = await Promise.all([
-    prisma.safetyReport.findMany({ where: inScope, select: { id: true, mineId: true, category: true, severity: true, status: true, zoneId: true, createdAt: true, updatedAt: true, mine: { select: { name: true } }, zone: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 2000 }),
+    prisma.safetyReport.findMany({ where: inScope, select: { id: true, mineId: true, category: true, severity: true, status: true, districtId: true, createdAt: true, updatedAt: true, mine: { select: { name: true } }, district: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 2000 }),
     prisma.correctiveAction.findMany({ select: { id: true, issueId: true, issueType: true, deadline: true, priority: true, status: true, createdAt: true, completedAt: true } }),
     prisma.inspection.findMany({ where: inScope, select: { id: true, mineId: true, inspectionType: true, status: true, violationsCount: true, createdAt: true, completedAt: true, deadline: true, mine: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 2000 }),
     prisma.incident.findMany({ where: inScope, select: { id: true, mineId: true, incidentType: true, severity: true, status: true, createdAt: true, mine: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 1500 }),
@@ -78,8 +78,8 @@ export async function governanceAnalytics(options: { mineId?: string; periodDays
     const score = activeSos.length * 10 + severeHazards.length * 3 + overdue.length * 2 + openIncidents.length * 2 + missedInspections.length + Math.min(periodViolations, 5);
     risks.push({ mineId: mine.id, mineName: mine.name, score, riskLevel: score >= 10 ? 'HIGH' : score >= 4 ? 'ELEVATED' : 'NORMAL', indicators });
 
-    for (const [groupKey, group] of groupBy(periodHazards.filter((row) => row.status !== 'RESOLVED'), (row) => `${row.category}|${row.zoneId || 'mine'}`)) {
-      if (group.length >= 2) recurring.push({ mineId: mine.id, mineName: mine.name, issue: groupKey.split('|')[0], location: group[0].zone?.name || 'Mine-wide', count: group.length, detection: 'same mine, category and zone among open hazards in the selected period', evidenceIds: group.map((row) => row.id), firstSeen: group[group.length - 1].createdAt, lastSeen: group[0].createdAt });
+    for (const [groupKey, group] of groupBy(periodHazards.filter((row) => row.status !== 'RESOLVED'), (row) => `${row.category}|${row.districtId || 'mine'}`)) {
+      if (group.length >= 2) recurring.push({ mineId: mine.id, mineName: mine.name, issue: groupKey.split('|')[0], location: group[0].district?.name || 'Mine-wide', count: group.length, detection: 'same mine, category and district among open hazards in the selected period', evidenceIds: group.map((row) => row.id), firstSeen: group[group.length - 1].createdAt, lastSeen: group[0].createdAt });
     }
 
     if (previousInspections.length >= 2 && periodInspections.length <= previousInspections.length * 0.5) {
@@ -125,7 +125,7 @@ export async function governanceAnalytics(options: { mineId?: string; periodDays
     dataWarnings,
     complianceSummary,
     evidence: {
-      hazards: hazards.slice(0, 500).map((row: any) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, category: row.category, severity: row.severity, status: row.status, zone: row.zone?.name || null, createdAt: row.createdAt, updatedAt: row.updatedAt })),
+      hazards: hazards.slice(0, 500).map((row: any) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, category: row.category, severity: row.severity, status: row.status, district: row.district?.name || null, createdAt: row.createdAt, updatedAt: row.updatedAt })),
       inspections: inspections.slice(0, 500).map((row: any) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, type: row.inspectionType, status: row.status, violationsCount: row.violationsCount, createdAt: row.createdAt, completedAt: row.completedAt, deadline: row.deadline })),
       incidents: incidents.slice(0, 500).map((row: any) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, type: row.incidentType, severity: row.severity, status: row.status, createdAt: row.createdAt })),
       sos: sos.slice(0, 500).map((row: any) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, type: row.emergencyType, status: row.status, triggeredAt: row.triggeredAt })),
@@ -170,7 +170,7 @@ async function buildAiEvidence(input: {
     input.hazards.filter((row) => row.status !== 'RESOLVED' || recurringIds.has(row.id) || anomalyIds.has(row.id)),
     (row) => row.status !== 'RESOLVED' && ['HIGH', 'CRITICAL'].includes(row.severity) ? 0 : recurringIds.has(row.id) ? 1 : anomalyIds.has(row.id) ? 2 : 3,
     (row) => row.createdAt,
-  ).map((row) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, category: row.category, severity: row.severity, status: row.status, zone: row.zone?.name || null, createdAt: row.createdAt, updatedAt: row.updatedAt }));
+  ).map((row) => ({ id: row.id, mineId: row.mineId, mineName: row.mine.name, category: row.category, severity: row.severity, status: row.status, district: row.district?.name || null, createdAt: row.createdAt, updatedAt: row.updatedAt }));
 
   const incidents = boundedRecords(
     input.incidents.filter((row) => !['RESOLVED', 'CLOSED'].includes(row.status) || anomalyIds.has(row.id)),

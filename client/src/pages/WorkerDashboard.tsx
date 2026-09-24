@@ -6,8 +6,9 @@ import { api } from '../services/api';
 import { SafetyReport, Mine } from '../types';
 import { StatusPill } from '../components/StatusPill';
 import { AttendanceCard } from '../components/AttendanceCard';
-import { MineTodayPanel } from '../components/MineTodayPanel';
-import { atLeast } from '../roles';
+import { ClearanceNotice } from '../components/shift/ClearanceNotice';
+import { useMyShift } from '../components/shift/useShift';
+import { describeRole } from '../roles';
 import { firstNameOf } from '../components/DashboardKit';
 import { InspectionNudge } from '../components/InspectionNudge';
 import { ListSkeleton } from '../components/ui';
@@ -18,13 +19,13 @@ interface WorkerDashboardProps {
 }
 
 const CATEGORIES = [
-  { value: 'PPE', label: 'PPE / respirator' },
+  { value: 'STRUCTURAL', label: 'Roof and sides' },
+  { value: 'GAS', label: 'Gas / methane' },
+  { value: 'VENTILATION', label: 'Ventilation' },
   { value: 'MACHINERY', label: 'Machinery' },
   { value: 'ELECTRICAL', label: 'Electrical' },
-  { value: 'VENTILATION', label: 'Ventilation' },
-  { value: 'GAS', label: 'Gas / methane' },
-  { value: 'STRUCTURAL', label: 'Roof support' },
-  { value: 'ENVIRONMENTAL', label: 'Flooding / environmental' },
+  { value: 'ENVIRONMENTAL', label: 'Water / flooding' },
+  { value: 'PPE', label: 'PPE / respirator' },
 ];
 
 const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -51,9 +52,11 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const [showReportModal, setShowReportModal] = useState(false);
+  const { data: myShift, reload: reloadShift } = useMyShift();
   const [form, setForm] = useState({
     mineId: user?.mineId || '',
-    category: 'PPE',
+    districtId: user?.districtId || '',
+    category: 'STRUCTURAL',
     severity: 'MEDIUM',
     description: '',
     immediateActionTaken: '',
@@ -81,6 +84,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
     loadData();
   }, [user?.id]);
 
+  const formDistricts = mines.find((m) => m.id === (form.mineId || user?.mineId))?.districts || [];
   const openReports = reports.filter((r) => r.status !== 'RESOLVED');
   const criticalOpen = openReports.filter((r) => r.severity === 'CRITICAL' || r.severity === 'HIGH');
   const firstName = firstNameOf(user?.name);
@@ -88,7 +92,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
   const openReportModal = () => {
     setCreatedReport(null);
     setSubmitError(null);
-    setForm((f) => ({ ...f, description: '', immediateActionTaken: '' }));
+    setForm((f) => ({ ...f, districtId: user?.districtId || '', description: '', immediateActionTaken: '' }));
     setShowReportModal(true);
   };
 
@@ -104,6 +108,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
     try {
       const res = await api.createSafetyReport({
         mineId,
+        districtId: form.districtId || undefined,
         category: form.category,
         severity: form.severity,
         description: form.description,
@@ -126,7 +131,9 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
           <h1 className="text-2xl font-semibold tracking-tight">
             {greeting()}{firstName && `, ${firstName}`}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">{user?.mine?.name || 'No mine assigned yet'}</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {user ? describeRole(user) : ''} · {user?.mine?.name || 'No mine assigned yet'}
+          </p>
         </div>
         <button onClick={openReportModal} className="btn-primary">
           <Plus className="w-4 h-4" />
@@ -134,9 +141,21 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
         </button>
       </div>
 
-      {user?.mineId && <AttendanceCard />}
+      {user?.contract && (!user.trainingValidUntil || new Date(user.trainingValidUntil).getTime() < Date.now()) && (
+        <div className="card-danger px-4 py-3">
+          <p className="text-sm text-zinc-100">
+            {user.trainingValidUntil
+              ? `Your vocational training certificate expired on ${new Date(user.trainingValidUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.`
+              : 'Your vocational training certificate is not on record.'}
+          </p>
+          <p className="mt-0.5 text-sm text-zinc-400">
+            You can't check in until it is renewed. Ask {user.contract.contractor.name} to send the new certificate to the mine office.
+          </p>
+        </div>
+      )}
+      {myShift && <ClearanceNotice shift={myShift} />}
+      {user?.mineId && <AttendanceCard onData={() => reloadShift()} />}
       <InspectionNudge />
-      {user?.mineId && atLeast(user, 'SUPERVISOR') && <MineTodayPanel mineId={user.mineId} />}
 
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -175,7 +194,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-zinc-200 truncate">{r.description}</p>
                     <p className="mt-0.5 text-xs text-zinc-500 truncate">
-                      {r.mine?.name} · {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                      {r.district?.name || r.mine?.name} · {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
                     </p>
                   </div>
                   <StatusPill status={r.status} />
@@ -222,7 +241,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
                   <Check className="w-6 h-6 text-emerald-400" />
                 </div>
                 <h3 className="mt-4 text-base font-semibold">Report submitted</h3>
-                <p className="mt-1 text-sm text-zinc-400">A safety officer has been notified.</p>
+                <p className="mt-1 text-sm text-zinc-400">Your Sirdar and the Overman on shift have been notified.</p>
                 <p className="mt-4 font-mono text-xs text-zinc-500">{createdReport.id}</p>
                 <button onClick={() => setShowReportModal(false)} className="btn-secondary w-full mt-6">
                   Done
@@ -251,8 +270,22 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
                   </div>
                 )}
 
+                {formDistricts.length > 0 && (
+                  <div>
+                    <label className="label">Where</label>
+                    <select value={form.districtId} onChange={(e) => setForm({ ...form, districtId: e.target.value })} className="input">
+                      <option value="">Not sure</option>
+                      {formDistricts.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
-                  <label className="label">Category</label>
+                  <label className="label">What kind</label>
                   <select
                     value={form.category}
                     onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -291,7 +324,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
                     required
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    placeholder="Equipment, location, what's wrong"
+                    placeholder="What is wrong, and exactly where, e.g. roof leaking in gallery 14"
                     className="input resize-none"
                   />
                 </div>
@@ -302,7 +335,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ mines }) => {
                     type="text"
                     value={form.immediateActionTaken}
                     onChange={(e) => setForm({ ...form, immediateActionTaken: e.target.value })}
-                    placeholder="e.g. Tagged out, stopped conveyor"
+                    placeholder="e.g. Fenced off, stopped the conveyor"
                     className="input"
                   />
                 </div>

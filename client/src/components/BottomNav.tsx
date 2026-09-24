@@ -1,18 +1,29 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { LayoutGrid, CalendarCheck, ClipboardCheck, Menu, LucideIcon } from 'lucide-react';
+import { LayoutGrid, CalendarCheck, ClipboardCheck, AlertTriangle, Layers, Users, FileText, Menu, LucideIcon } from 'lucide-react';
 import { slide } from '../motion';
+import { useAuth } from '../context/AuthContext';
+import { Role } from '../types';
 
-const TABS: { to: string; label: string; icon: LucideIcon }[] = [
-  { to: '/dashboard', label: 'Home', icon: LayoutGrid },
-  { to: '/attendance', label: 'Attendance', icon: CalendarCheck },
-];
-const TABS_RIGHT: { to: string; label: string; icon: LucideIcon }[] = [{ to: '/inspections', label: 'Inspections', icon: ClipboardCheck }];
+type Tab = { to: string; label: string; icon: LucideIcon };
+const HOME: Tab = { to: '/dashboard', label: 'Home', icon: LayoutGrid };
+const HAZARDS: Tab = { to: '/safety-reports', label: 'Hazards', icon: AlertTriangle };
+
+/** Two tabs either side of SOS; the ones each role opens most on shift. */
+const TABS_FOR: Partial<Record<Role, [Tab, Tab, Tab]>> = {
+  WORKER: [HOME, HAZARDS, { to: '/inspections', label: 'Tasks', icon: ClipboardCheck }],
+  SPECIALIST: [HOME, { to: '/field-reports', label: 'Reports', icon: FileText }, HAZARDS],
+  SIRDAR: [HOME, { to: '/attendance', label: 'Crew', icon: Users }, HAZARDS],
+  OVERMAN: [HOME, { to: '/shifts', label: 'Districts', icon: Layers }, HAZARDS],
+};
+const DEFAULT_TABS: [Tab, Tab, Tab] = [HOME, { to: '/attendance', label: 'Attendance', icon: CalendarCheck }, { to: '/inspections', label: 'Inspections', icon: ClipboardCheck }];
 
 /** Phone-only tab bar, app style. SOS sits in the middle where a thumb finds it without looking. */
 export const BottomNav: React.FC<{ onOpenSos: () => void; onOpenMore: () => void }> = ({ onOpenSos, onOpenMore }) => {
-  const tab = ({ to, label, icon: Icon }: (typeof TABS)[number]) => (
+  const { user } = useAuth();
+  const [first, second, third] = (user?.role && TABS_FOR[user.role]) || DEFAULT_TABS;
+  const tab = ({ to, label, icon: Icon }: Tab) => (
     <NavLink key={to} to={to} className="relative flex-1 flex flex-col items-center justify-center gap-1 h-full">
       {({ isActive }) => (
         <>
@@ -27,7 +38,7 @@ export const BottomNav: React.FC<{ onOpenSos: () => void; onOpenMore: () => void
   return (
     <nav className="lg:hidden shrink-0 border-t border-white/[0.06] bg-zinc-950 pb-[env(safe-area-inset-bottom)]" aria-label="Main">
       <div className="h-16 flex items-stretch">
-        {TABS.map(tab)}
+        {[first, second].map(tab)}
         <div className="flex-1 flex items-center justify-center">
           <motion.button
             whileTap={{ scale: 0.92 }}
@@ -38,7 +49,7 @@ export const BottomNav: React.FC<{ onOpenSos: () => void; onOpenMore: () => void
             SOS
           </motion.button>
         </div>
-        {TABS_RIGHT.map(tab)}
+        {tab(third)}
         <button onClick={onOpenMore} className="flex-1 flex flex-col items-center justify-center gap-1 text-zinc-500 active:text-zinc-200">
           <Menu className="w-5 h-5" />
           <span className="text-[10px]">More</span>

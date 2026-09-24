@@ -14,7 +14,7 @@ interface GrievancesPageProps {
 type Anonymity = 'ANONYMOUS' | 'CONFIDENTIAL' | 'IDENTIFIED';
 
 const CATEGORIES = [
-  { value: 'SUPERVISOR_PRESSURE', label: 'Pressure from supervisor' },
+  { value: 'SUPERVISOR_PRESSURE', label: 'Pressure from Sirdar or Overman' },
   { value: 'SAFETY_VIOLATIONS', label: 'Forced unsafe work' },
   { value: 'IGNORED_HAZARDS', label: 'Hazards ignored' },
   { value: 'HARASSMENT', label: 'Harassment or discrimination' },

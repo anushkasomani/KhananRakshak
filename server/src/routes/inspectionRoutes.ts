@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import { AuthenticatedRequest, AuthUser, requireAdmin, actorRole, mineScope, canSeeMine } from '../middleware/auth';
+import { AuthenticatedRequest, AuthUser, actorRole, mineFilter, canSeeMine } from '../middleware/auth';
+import { resolveHazard } from '../services/hazardService';
 import { AuditService } from '../services/auditService';
 import { savePhoto, PhotoError } from '../services/photoStorage';
 import { distanceMeters } from '../geo';
@@ -13,7 +14,7 @@ const TYPES = ['ROUTINE', 'ROOF_SUPPORT_CHECK', 'VENTILATION_AUDIT', 'ELECTRICAL
 const MAX_PHOTOS = 4;
 const INCLUDE = {
   mine: { select: { id: true, name: true, code: true } },
-  assignedTo: { select: { id: true, name: true, role: true, officerType: true, trade: true, phone: true } },
+  assignedTo: { select: { id: true, name: true, role: true, officerType: true, trade: true, specialistType: true, phone: true } },
 } as const;
 
 type Row = Prisma.InspectionGetPayload<{ include: typeof INCLUDE }>;
@@ -50,18 +51,21 @@ async function load(id: string) {
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   const u = req.user!;
   const where: Prisma.InspectionWhereInput = {};
-  const scope = mineScope(req);
+  const scope = mineFilter(req, req.query.mineId);
   if (scope) where.mineId = scope;
-  else if (req.query.mineId) where.mineId = String(req.query.mineId);
-  if (!u.isAdmin && roleLevel(u.role) < ROLE_LEVEL.SUPERVISOR) where.assignedToId = u.id;
+  if (!u.isAdmin && roleLevel(u.role) < ROLE_LEVEL.SIRDAR) where.assignedToId = u.id;
 
   const rows = await prisma.inspection.findMany({ where, include: INCLUDE, orderBy: [{ deadline: 'asc' }, { createdAt: 'desc' }] });
   return res.json(rows.map((r) => ({ ...present(r), canReview: r.status === 'SUBMITTED' && canReview(u, r, req) })));
 });
 
-// POST /api/inspections/assign  (admin)  { mineId, assignedToId, inspectionType, title, dueDate }
-router.post('/assign', requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+// POST /api/inspections/assign  (Overman and above at their mine, or admin)  { mineId, assignedToId, inspectionType, title, dueDate }
+router.post('/assign', async (req: AuthenticatedRequest, res: Response) => {
+  const u = req.user!;
   const { mineId, assignedToId, inspectionType, title, dueDate } = req.body || {};
+  if (!u.isAdmin && (roleLevel(u.role) < ROLE_LEVEL.OVERMAN || !canSeeMine(req, String(mineId)))) {
+    return res.status(403).json({ error: 'Only the Overman and above can assign inspections at their mine.' });
+  }
   if (!TYPES.includes(inspectionType)) return res.status(400).json({ error: 'Choose an inspection type.' });
   const due = new Date(dueDate);
   if (!dueDate || Number.isNaN(due.getTime())) return res.status(400).json({ error: 'Choose a due date.' });
@@ -69,6 +73,7 @@ router.post('/assign', requireAdmin, async (req: AuthenticatedRequest, res: Resp
   const person = await prisma.user.findUnique({ where: { id: String(assignedToId || '') }, include: { mine: true } });
   if (!person || person.status !== 'APPROVED' || !person.role) return res.status(400).json({ error: 'Choose who will do it.' });
   if (person.mineId !== mineId) return res.status(400).json({ error: `${person.name} does not work at this mine.` });
+  if (person.id === u.id) return res.status(400).json({ error: 'Assign it to someone else.' });
 
   const id = `INS-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
   const inspection = await prisma.inspection.create({
@@ -219,6 +224,13 @@ router.post('/:id/review', async (req: AuthenticatedRequest, res: Response) => {
     data: { id: existing.id, decision, status, reviewedBy: u.name },
   });
   if (block && status === 'COMPLETED') await prisma.inspection.update({ where: { id: existing.id }, data: { recordHash: block.currentHash } });
+
+  // An inspection sent to check a hazard's fix closes the hazard when approved; if it couldn't be done, the hazard waits for another check.
+  if (existing.hazardId && status === 'COMPLETED') {
+    await resolveHazard(existing.hazardId, { name: u.name, role: actorRole(req) }, `Checked by ${existing.inspectorName} (${existing.id})`);
+  } else if (existing.hazardId && status === 'MISSED') {
+    await prisma.safetyReport.update({ where: { id: existing.hazardId }, data: { inspectionId: null } });
+  }
   return res.json(present(inspection));
 });
 

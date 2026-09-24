@@ -236,7 +236,7 @@ router.post('/:id/escalate', optionalAuthenticate, async (req: AuthenticatedRequ
       recordType: 'GRIEVANCE',
       recordId: grievance.trackingCode,
       action: 'ESCALATED',
-      performedByRole: actorRole(req, 'SUPERVISOR'),
+      performedByRole: actorRole(req, 'SIRDAR'),
       data: {
         trackingCode: grievance.trackingCode,
         fromTier: grievance.escalationTier,

@@ -19,13 +19,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ variant, isOpen = false, onClo
   const { user } = useAuth();
   const items = navFor(user);
   const groups = GROUP_ORDER.map((g) => ({ label: g, items: items.filter((i) => i.group === g) })).filter((g) => g.items.length);
-  const renderItem = ({ to, label, icon: Icon }: NavItem) => (
+  // On phones the menu has room to say what each page is for; the desktop sidebar keeps it in a tooltip.
+  const showHint = variant === 'mobile';
+  const renderItem = ({ to, label, hint, icon: Icon }: NavItem) => (
     <NavLink
       key={to}
       to={to}
       onClick={onClose}
+      title={!showHint ? hint : undefined}
       className={({ isActive }) =>
-        `relative flex items-center gap-2.5 ${variant === 'mobile' ? 'h-10' : 'h-8'} px-2.5 rounded-md text-[13px] transition-colors ${
+        `relative flex items-center gap-2.5 ${showHint && hint ? 'min-h-12 py-1.5' : variant === 'mobile' ? 'h-10' : 'h-8'} px-2.5 rounded-md text-[13px] transition-colors ${
           isActive ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'
         }`
       }
@@ -34,7 +37,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ variant, isOpen = false, onClo
         <>
           {isActive && <motion.span layoutId={`nav-active-${variant}`} transition={slide} className="absolute inset-0 rounded-md bg-white/[0.07]" />}
           <Icon className="relative w-4 h-4 shrink-0 opacity-80" />
-          <span className="relative truncate">{label}</span>
+          <span className="relative min-w-0">
+            <span className="block truncate">{label}</span>
+            {showHint && hint && <span className="block text-[11px] leading-tight text-zinc-500 truncate">{hint}</span>}
+          </span>
         </>
       )}
     </NavLink>

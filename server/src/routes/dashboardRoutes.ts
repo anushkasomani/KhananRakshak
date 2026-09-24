@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest, AuthUser, requireLevel, canSeeMine } from '../middleware/auth';
+import { AuthenticatedRequest, AuthUser, requireLevel, canSeeMine, mineScope } from '../middleware/auth';
 import { prisma } from '../db';
 import { indiaDate, recentDates } from '../geo';
+import { currentShift } from '../shifts';
 
 const router = Router();
 
@@ -34,10 +35,11 @@ function riskOf(k: { activeSos: number; severeIncidents: number; openIncidents: 
 
 async function mineKpis(mineId: string) {
   const now = new Date();
+  const start = (await prisma.mine.findUnique({ where: { id: mineId }, select: { shiftStartHour: true } }))?.shiftStartHour;
   const [staff, present, openIncidents, severeIncidents, openHazards, highHazards, overdueInspections, dueInspections, awaitingApproval, activeSos, openEscalations] =
     await Promise.all([
       prisma.user.count({ where: { mineId, status: 'APPROVED', role: { not: null } } }),
-      prisma.attendance.count({ where: { mineId, date: indiaDate() } }),
+      prisma.attendance.count({ where: { mineId, date: currentShift(now, start).date } }),
       prisma.incident.count({ where: { mineId, status: OPEN_INCIDENT } }),
       prisma.incident.count({ where: { mineId, status: OPEN_INCIDENT, severity: SEVERE_INCIDENT } }),
       prisma.safetyReport.count({ where: { mineId, status: { not: 'RESOLVED' } } }),
@@ -119,20 +121,22 @@ router.get('/mine/:mineId', requireLevel('OFFICER'), async (req: AuthenticatedRe
   return res.json({ mine, kpis, trends, focus });
 });
 
-// GET /api/dashboard/overview  (DGMS and admin: every mine, riskiest first)
+// GET /api/dashboard/overview  (DGMS and admin: every mine; Owner: their company's mines; riskiest first)
 router.get('/overview', async (req: AuthenticatedRequest, res: Response) => {
   const u = req.user!;
-  if (!u.isAdmin && u.role !== 'DGMS') return res.status(403).json({ error: 'Only DGMS can see all mines.' });
+  if (!u.isAdmin && u.role !== 'DGMS' && u.role !== 'OWNER') return res.status(403).json({ error: 'Only DGMS and owners see more than one mine.' });
+  const scope = mineScope(req);
 
   const mines = await prisma.mine.findMany({
+    where: scope ? { id: scope } : {},
     select: { id: true, name: true, code: true, state: true, locality: true, latitude: true, longitude: true, radiusMeters: true },
   });
   const rows = await Promise.all(mines.map(async (m) => ({ ...m, kpis: await mineKpis(m.id) })));
   rows.sort((a, b) => b.kpis.risk.score - a.kpis.risk.score || a.name.localeCompare(b.name));
 
   const activeSos = await prisma.sosAlert.findMany({
-    where: { status: ACTIVE_SOS },
-    select: { id: true, emergencyType: true, status: true, triggeredAt: true, mine: { select: { id: true, name: true } }, zone: { select: { name: true } } },
+    where: { status: ACTIVE_SOS, ...(scope ? { mineId: scope } : {}) },
+    select: { id: true, emergencyType: true, status: true, triggeredAt: true, mine: { select: { id: true, name: true } }, district: { select: { name: true } } },
     orderBy: { triggeredAt: 'desc' },
   });
   return res.json({ mines: rows, activeSos });

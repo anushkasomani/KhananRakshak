@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Mine, MineDashboard, MinesOverview } from '../types';
-import { OFFICER_TYPES } from '../roles';
+import { Contract, Mine, MineDashboard, MinesOverview } from '../types';
+import { OFFICER_TYPES, ROLE_LABELS } from '../roles';
 import { Section, Empty, ListSkeleton, titleCase, shortDate } from '../components/ui';
 import { StatusPill } from '../components/StatusPill';
 import { AttendanceCard } from '../components/AttendanceCard';
@@ -13,7 +13,11 @@ import { MinesMap } from '../components/MineMap';
 import { formatTime } from '../attendance';
 import { EscalationBanner } from './EscalationsPage';
 import { WorkerDashboard } from './WorkerDashboard';
-import { Greeting, MineTiles, Tile, AttentionList, attentionFor, WeeklyBars, RiskPill, RISK } from '../components/DashboardKit';
+import { SirdarDashboard, OvermanDashboard } from './ShiftDashboards';
+import { SpecialistDashboard } from './SpecialistDashboard';
+import { DistrictBoard } from '../components/shift/DistrictBoard';
+import { useShiftBoard } from '../components/shift/useShift';
+import { Greeting, MineTiles, Tile, AttentionList, attentionFor, AttentionItem, WeeklyBars, RiskPill, RISK } from '../components/DashboardKit';
 
 const REFRESH_MS = 60000;
 
@@ -29,16 +33,23 @@ const SEVERITY_DOT: Record<string, string> = {
 export const RoleDashboard: React.FC<{ mines: Mine[]; onOpenSos: () => void }> = ({ mines, onOpenSos }) => {
   const { user } = useAuth();
   switch (user?.role) {
+    case 'SPECIALIST':
+      return <SpecialistDashboard mines={mines} />;
+    case 'SIRDAR':
+      return <SirdarDashboard />;
+    case 'OVERMAN':
+      return <OvermanDashboard />;
     case 'OFFICER':
       return <OfficerDashboard />;
+    case 'ASSISTANT_MANAGER':
     case 'MINE_MANAGER':
-      return <MineManagerDashboard />;
-    case 'PROJECT_MANAGER':
-      return <ProjectManagerDashboard />;
+      return <ManagerDashboard />;
+    case 'OWNER':
+      return <OwnerDashboard />;
     case 'DGMS':
-      return <DgmsDashboard />;
+      return <OverviewDashboard subtitle={(n) => `DGMS · ${n} mines`} />;
     default:
-      return <WorkerDashboard mines={mines} onOpenSos={onOpenSos} />; // workers and supervisors
+      return <WorkerDashboard mines={mines} onOpenSos={onOpenSos} />;
   }
 };
 
@@ -157,48 +168,86 @@ const OfficerDashboard: React.FC = () => {
   );
 };
 
-// ---------- Mine manager: is my mine OK right now? ----------
+const DAY = 86400000;
 
-const MineManagerDashboard: React.FC = () => {
+/** Contract problems worth acting on: workers who can't work for lack of training, contracts about to run out, suspended ones. */
+function useContractAttention(mineId?: string): AttentionItem[] {
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  useEffect(() => {
+    api
+      .getContracts(mineId ? { mineId } : {})
+      .then(setContracts)
+      .catch(() => setContracts([]));
+  }, [mineId]);
+  const items: AttentionItem[] = [];
+  const expired = contracts.filter((c) => c.status === 'ACTIVE').reduce((n, c) => n + (c.stats?.trainingExpired || 0), 0);
+  if (expired)
+    items.push({
+      tone: 'warning',
+      title: `${expired} contract worker${expired === 1 ? " can't" : "s can't"} work: training expired or missing`,
+      detail: 'Their contractor needs to renew the vocational training certificate',
+      to: '/contracts',
+    });
+  for (const c of contracts) {
+    const left = Math.ceil((new Date(c.endDate).getTime() + DAY - Date.now()) / DAY);
+    if (c.status === 'ACTIVE' && left <= 14)
+      items.push({ tone: 'info', title: `${c.contractor.name} contract ${left < 0 ? 'is past its end date' : `ends in ${left} day${left === 1 ? '' : 's'}`}`, detail: c.title, to: '/contracts' });
+    if (c.status === 'SUSPENDED') items.push({ tone: 'info', title: `${c.contractor.name} contract is suspended`, detail: c.statusNote || c.title, to: '/contracts' });
+  }
+  return items;
+}
+
+// ---------- Assistant manager, mine manager and owner: is the mine OK now, and which way is it heading? ----------
+
+const ManagerDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { data, error } = useMineDashboard();
+  const { data, error } = useMineDashboard(true);
+  const { board, reload } = useShiftBoard({}, !!user?.mineId);
+  const contractItems = useContractAttention(user?.mineId || undefined);
+  const t = data?.trends || [];
+  const series = (pick: (w: (typeof t)[number]) => number) => t.map((w) => ({ weekStart: w.weekStart, value: pick(w) }));
+
+  // Districts on the running shift that are unsafe or not yet inspected come first.
+  const shiftItems: AttentionItem[] = board
+    ? [
+        ...board.districts
+          .filter((d) => d.report?.status === 'UNSAFE')
+          .map((d) => ({ tone: 'danger' as const, title: `${d.name} declared unsafe`, detail: `${board.shiftLabel} · ${d.report!.sirdar.name}`, to: '/shifts' })),
+        ...board.districts
+          .filter((d) => !d.report && d.crew.total > 0)
+          .map((d) => ({ tone: 'warning' as const, title: `${d.name} not inspected yet`, detail: `${board.shiftLabel} · crew can't check in`, to: '/shifts' })),
+      ]
+    : [];
+
   return (
     <div className="space-y-8">
-      <Greeting subtitle={<MineSubtitle data={data} role="Mine manager" />} />
+      <Greeting subtitle={<MineSubtitle data={data} role={ROLE_LABELS[user!.role!]} />} />
       <EscalationBanner />
       {error && <p className="text-sm text-red-400">{error}</p>}
       <Section title="Needs your attention">
         {data ? (
-          <AttentionList items={attentionFor(data.kpis)} empty="Nothing urgent. The mine looks steady." />
+          <AttentionList items={[...shiftItems, ...attentionFor(data.kpis), ...contractItems]} empty="Nothing urgent. The mine looks steady." />
         ) : (
           <div className="card">
             <ListSkeleton rows={2} />
           </div>
         )}
       </Section>
+      <Section
+        title={board ? `Districts now · ${board.shiftLabel}` : 'Districts now'}
+        action={<ViewAll to="/shifts" />}
+      >
+        {board ? (
+          <DistrictBoard board={board} onChanged={reload} />
+        ) : (
+          <div className="card">
+            <ListSkeleton rows={3} />
+          </div>
+        )}
+      </Section>
       <Section title="Right now">
         <MineTiles k={data?.kpis ?? null} />
       </Section>
-      {user?.mineId && <AttendanceCard />}
-      <InspectionNudge />
-    </div>
-  );
-};
-
-// ---------- Project manager: which way are things heading? ----------
-
-const ProjectManagerDashboard: React.FC = () => {
-  const { user } = useAuth();
-  const { data, error } = useMineDashboard(true);
-  const t = data?.trends || [];
-  const series = (pick: (w: (typeof t)[number]) => number) => t.map((w) => ({ weekStart: w.weekStart, value: pick(w) }));
-
-  return (
-    <div className="space-y-8">
-      <Greeting subtitle={<MineSubtitle data={data} role="Project manager" />} />
-      <EscalationBanner />
-      {error && <p className="text-sm text-red-400">{error}</p>}
-
       <Section title="Last 8 weeks">
         {t.length ? (
           <div className="grid sm:grid-cols-2 gap-3">
@@ -214,19 +263,33 @@ const ProjectManagerDashboard: React.FC = () => {
         )}
         <p className="mt-2 text-xs text-zinc-600">Each bar is one week, starting on the date under it. Attendance rate uses today's headcount.</p>
       </Section>
-
-      <Section title="Today">
-        <MineTiles k={data?.kpis ?? null} />
-      </Section>
       {user?.mineId && <AttendanceCard />}
       <InspectionNudge />
     </div>
   );
 };
 
-// ---------- DGMS: every mine, worst first ----------
+// ---------- Owner / Agent: every mine the company holds ----------
 
-const DgmsDashboard: React.FC = () => {
+const OwnerDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const contractItems = useContractAttention();
+  const company = user?.mine?.company;
+  return (
+    <OverviewDashboard
+      subtitle={(n) => `Owner / Agent · ${company ? `${company} · ` : ''}${n} mine${n === 1 ? '' : 's'}`}
+      extra={
+        <Section title="Contractors">
+          <AttentionList items={contractItems} empty="No contract problems at any of your mines." />
+        </Section>
+      }
+    />
+  );
+};
+
+// ---------- DGMS (every mine) and Owner (their company's mines): worst first ----------
+
+const OverviewDashboard: React.FC<{ subtitle: (mineCount: number) => string; extra?: React.ReactNode }> = ({ subtitle, extra }) => {
   const [data, setData] = useState<MinesOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -248,7 +311,7 @@ const DgmsDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <Greeting subtitle={`DGMS · ${mines.length || '–'} mines`} />
+      <Greeting subtitle={data ? subtitle(mines.length) : ''} />
       <EscalationBanner />
       {error && <p className="text-sm text-red-400">{error}</p>}
 
@@ -269,7 +332,7 @@ const DgmsDashboard: React.FC = () => {
                   <p className="text-sm text-red-100 truncate">{titleCase(s.emergencyType)}</p>
                   <p className="mt-0.5 text-xs text-red-300/70 truncate">
                     {s.mine.name}
-                    {s.zone ? ` · ${s.zone.name}` : ''} · {formatTime(s.triggeredAt)}
+                    {s.district ? ` · ${s.district.name}` : ''} · {formatTime(s.triggeredAt)}
                   </p>
                 </div>
                 <StatusPill status={s.status} />
@@ -278,6 +341,8 @@ const DgmsDashboard: React.FC = () => {
           </div>
         </Section>
       )}
+
+      {extra}
 
       <Section title="Mines by risk">
         {/* Riskiest drawn last so its pin stays on top when mines are close together. */}

@@ -4,14 +4,15 @@ import { api } from '../services/api';
 import { Logo } from '../components/Logo';
 import { DetailRows } from '../components/ui';
 import { PersonFields, PersonValues, personFromUser, personProblem, personPayload } from '../components/PersonFields';
-import { describeRole } from '../roles';
+import { describeRole, shiftLabel, hasShift } from '../roles';
+import { Mine } from '../types';
 
 const POLL_MS = 20000;
 
 export const AccountSetup: React.FC = () => {
   const { user, setUser, refreshUser, logout } = useAuth();
   const [editing, setEditing] = useState(user?.status !== 'PENDING');
-  const [mines, setMines] = useState<{ id: string; name: string }[]>([]);
+  const [mines, setMines] = useState<Pick<Mine, 'id' | 'name' | 'districts' | 'contracts' | 'shiftStartHour'>[]>([]);
   const [values, setValues] = useState<PersonValues>(() => personFromUser(user || {}));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,7 +49,9 @@ export const AccountSetup: React.FC = () => {
     }
   };
 
-  const mineName = mines.find((m) => m.id === user.mineId)?.name || user.mine?.name;
+  const mine = mines.find((m) => m.id === user.mineId);
+  const mineName = mine?.name || user.mine?.name;
+  const districtName = mine?.districts?.find((d) => d.id === user.districtId)?.name || user.district?.name;
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-12 sm:py-20">
@@ -103,6 +106,8 @@ export const AccountSetup: React.FC = () => {
                   ['Email', user.email],
                   ['Role', describeRole(user)],
                   ...(user.role !== 'DGMS' ? ([['Mine', mineName]] as [string, string | undefined][]) : []),
+                  ...(districtName ? ([['District', districtName]] as [string, string][]) : []),
+                  ...(hasShift(user.role) && user.shift ? ([['Shift', shiftLabel(user.shift, mine?.shiftStartHour ?? user.mine?.shiftStartHour)]] as [string, string][]) : []),
                   ['Phone', user.phone],
                 ]}
               />

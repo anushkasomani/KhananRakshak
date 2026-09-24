@@ -7,14 +7,17 @@ import { PageHeader, Section, Stat, Empty, ListSkeleton } from '../../components
 import { MinesMap } from '../../components/MineMap';
 import { MineEditor } from './AdminMinesPage';
 import { PersonEditor } from './AdminPeoplePage';
-import { ROLES, TRADES, describeRole } from '../../roles';
+import { ROLES, TRADES, SHIFTS, describeRole, describePost, clockHour } from '../../roles';
 
 const PLURAL: Record<Role, string> = {
   WORKER: 'Workers',
-  SUPERVISOR: 'Supervisors',
+  SPECIALIST: 'Specialists',
+  SIRDAR: 'Mining Sirdars',
+  OVERMAN: 'Overmen',
   OFFICER: 'Officers',
+  ASSISTANT_MANAGER: 'Assistant managers',
   MINE_MANAGER: 'Mine managers',
-  PROJECT_MANAGER: 'Project managers',
+  OWNER: 'Owner / Agent',
   DGMS: 'DGMS',
 };
 
@@ -60,7 +63,12 @@ export const MineDetailPage: React.FC = () => {
   const tradeCounts = Object.entries(TRADES)
     .map(([k, label]) => ({ label, n: workers.filter((w) => w.trade === k).length }))
     .filter((t) => t.n > 0);
-  const managers = byRole('MINE_MANAGER').length + byRole('PROJECT_MANAGER').length;
+  const managers = byRole('ASSISTANT_MANAGER').length + byRole('MINE_MANAGER').length;
+  const postOf = (p: User) => {
+    const district = mine.districts?.find((d) => d.id === p.districtId);
+    const contract = mine.contracts?.find((c) => c.id === p.contractId);
+    return [describePost({ district, shift: p.shift }), contract && `${contract.contractor.name} (contract)`].filter(Boolean).join(' · ');
+  };
   const km = mine.radiusMeters >= 1000 ? `${(mine.radiusMeters / 1000).toFixed(1)} km` : `${mine.radiusMeters} m`;
 
   return (
@@ -72,7 +80,7 @@ export const MineDetailPage: React.FC = () => {
 
       <PageHeader
         title={mine.name}
-        description={`${[mine.locality, mine.state].filter(Boolean).join(', ')} · ${mine.code} · ${km} radius`}
+        description={`${[mine.company, mine.locality, mine.state].filter(Boolean).join(', ')} · ${mine.code} · ${km} radius · shift A starts ${clockHour(mine.shiftStartHour)}`}
         actions={
           <button onClick={() => setEditingMine(true)} className="btn-secondary">
             Edit mine
@@ -84,8 +92,8 @@ export const MineDetailPage: React.FC = () => {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="Workers" value={workers.length} />
-        <Stat label="Supervisors" value={byRole('SUPERVISOR').length} />
-        <Stat label="Officers" value={byRole('OFFICER').length} />
+        <Stat label="Sirdars" value={byRole('SIRDAR').length} />
+        <Stat label="Overmen" value={byRole('OVERMAN').length} />
         <Stat label="Managers" value={managers} />
       </div>
 
@@ -100,6 +108,41 @@ export const MineDetailPage: React.FC = () => {
           ))}
         </p>
       )}
+
+      <Section title="Districts">
+        {!mine.districts?.length ? (
+          <div className="card">
+            <Empty>No districts yet. Edit the mine to add them.</Empty>
+          </div>
+        ) : (
+          <div className="card divide-y divide-white/[0.05]">
+            {mine.districts.map((d) => {
+              const here = people.filter((p) => p.districtId === d.id);
+              const sirdars = here.filter((p) => p.role === 'SIRDAR');
+              return (
+                <div key={d.id} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-sm text-zinc-200">{d.name}</p>
+                    <p className="text-xs text-zinc-500 shrink-0">{here.filter((p) => p.role === 'WORKER').length} workers</p>
+                  </div>
+                  {d.location && <p className="mt-0.5 text-xs text-zinc-500">{d.location}</p>}
+                  <p className="mt-1.5 text-xs text-zinc-400">
+                    {SHIFTS.map((s, i) => {
+                      const names = sirdars.filter((p) => p.shift === s).map((p) => p.name);
+                      return (
+                        <span key={s}>
+                          {i > 0 && <span className="text-zinc-700"> · </span>}
+                          Shift {s}: {names.length ? names.join(', ') : <span className="text-amber-400">no Sirdar</span>}
+                        </span>
+                      );
+                    })}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
       <Section
         title="Staff"
@@ -134,7 +177,8 @@ export const MineDetailPage: React.FC = () => {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm text-zinc-200 truncate">{p.name}</p>
                           <p className="mt-0.5 text-xs text-zinc-500 truncate">
-                            {role === 'WORKER' || role === 'OFFICER' ? `${describeRole(p)} · ` : ''}
+                            {role === 'WORKER' || role === 'OFFICER' || role === 'SPECIALIST' ? `${describeRole(p)} · ` : ''}
+                            {postOf(p) && `${postOf(p)} · `}
                             {p.phone || p.email}
                           </p>
                         </div>

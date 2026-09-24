@@ -1,7 +1,7 @@
 import React from 'react';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { describeRole } from '../roles';
+import { describeRole, shiftLabel } from '../roles';
 
 export const ProfilePage: React.FC = () => {
   const { user, logout } = useAuth();
@@ -10,6 +10,12 @@ export const ProfilePage: React.FC = () => {
   const rows: [string, string | null | undefined][] = [
     ['Role', describeRole(user)],
     ['Mine', user.mine?.name],
+    ...(user.district ? ([['District', user.district.name]] as [string, string][]) : []),
+    ...(user.shift ? ([['Shift', shiftLabel(user.shift, user.mine?.shiftStartHour)]] as [string, string][]) : []),
+    ...(user.contract ? ([['Employed by', `${user.contract.contractor.name} (contract)`]] as [string, string][]) : []),
+    ...(user.trainingValidUntil
+      ? ([['Training valid until', new Date(user.trainingValidUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })]] as [string, string][])
+      : []),
     ['Phone', user.phone],
     ['Employee ID', user.badgeNumber],
     ['Safety points', String(user.points ?? 0)],
@@ -37,7 +43,7 @@ export const ProfilePage: React.FC = () => {
         ))}
       </dl>
 
-      <p className="text-xs text-zinc-600">To change your role or mine, ask an admin.</p>
+      <p className="text-xs text-zinc-600">To change your role, mine, district or shift, ask an admin.</p>
 
       <button onClick={logout} className="btn-secondary">
         <LogOut className="w-4 h-4" />

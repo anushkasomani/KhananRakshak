@@ -1,21 +1,14 @@
 import { Router, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { AuthenticatedRequest, AuthUser, requireLevel, canSeeMine, actorRole } from '../middleware/auth';
-import { Role, ROLE_LEVEL, roleLevel, isRole, OFFICER_TYPES } from '../roles';
+import { Role, ROLE_LEVEL, ROLE_LABEL, roleLevel, isRole, OFFICER_TYPES } from '../roles';
 import { placeCalls } from '../services/voiceAlerts';
 import { AuditService } from '../services/auditService';
 import { prisma } from '../db';
 
 const router = Router();
 
-const TARGETS: Role[] = ['OFFICER', 'MINE_MANAGER', 'PROJECT_MANAGER', 'DGMS'];
-const ROLE_LABEL: Record<string, string> = {
-  SUPERVISOR: 'Supervisor',
-  OFFICER: 'Officer',
-  MINE_MANAGER: 'Mine manager',
-  PROJECT_MANAGER: 'Project manager',
-  DGMS: 'DGMS',
-};
+const TARGETS: Role[] = ['OVERMAN', 'OFFICER', 'ASSISTANT_MANAGER', 'MINE_MANAGER', 'OWNER', 'DGMS'];
 const RECIPIENT_SELECT = { id: true, name: true, role: true, officerType: true, phone: true, badgeNumber: true } as const;
 const ESCALATION_INCLUDE = {
   fromUser: { select: { id: true, name: true, role: true, officerType: true, phone: true } },
@@ -24,7 +17,7 @@ const ESCALATION_INCLUDE = {
 
 const humanize = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 const targetLabel = (role: string, officerType?: string | null) =>
-  role === 'OFFICER' && officerType ? `${humanize(officerType)} officer` : ROLE_LABEL[role] || role;
+  role === 'OFFICER' && officerType ? `${humanize(officerType)} officer` : ROLE_LABEL[role as Role] || role;
 
 type RecordInfo = { mineId: string; mineName: string; summary: string; severe: boolean };
 
@@ -40,12 +33,12 @@ async function loadRecord(type: string, id: string): Promise<RecordInfo | null> 
     };
   }
   if (type === 'SOS') {
-    const sos = await prisma.sosAlert.findUnique({ where: { id }, include: { mine: true, zone: true } });
+    const sos = await prisma.sosAlert.findUnique({ where: { id }, include: { mine: true, district: true } });
     if (!sos) return null;
     return {
       mineId: sos.mineId,
       mineName: sos.mine.name,
-      summary: `SOS: ${humanize(sos.emergencyType)}${sos.zone ? ` · ${sos.zone.name}` : ''}`,
+      summary: `SOS: ${humanize(sos.emergencyType)}${sos.district ? ` · ${sos.district.name}` : ''}`,
       severe: true,
     };
   }
@@ -55,15 +48,19 @@ async function loadRecord(type: string, id: string): Promise<RecordInfo | null> 
 /** Levels this user may escalate to: strictly above their own. Admins may pick any. */
 const allowedTargets = (u: AuthUser) => (u.isAdmin ? TARGETS : TARGETS.filter((t) => ROLE_LEVEL[t] > roleLevel(u.role)));
 
-const recipientsWhere = (mineId: string, toRole: string, toOfficerType?: string | null): Prisma.UserWhereInput => ({
-  status: 'APPROVED',
-  role: toRole,
-  ...(toRole === 'DGMS' ? {} : { mineId }),
-  ...(toRole === 'OFFICER' && toOfficerType ? { officerType: toOfficerType } : {}),
-});
+/** Who an escalation reaches. DGMS covers every mine; an Owner covers every mine of the company. */
+async function recipientsWhere(mineId: string, toRole: string, toOfficerType?: string | null): Promise<Prisma.UserWhereInput> {
+  const base = { status: 'APPROVED', role: toRole };
+  if (toRole === 'DGMS') return base;
+  if (toRole === 'OWNER') {
+    const company = (await prisma.mine.findUnique({ where: { id: mineId }, select: { company: true } }))?.company;
+    return company ? { ...base, mine: { company } } : { ...base, mineId };
+  }
+  return { ...base, mineId, ...(toRole === 'OFFICER' && toOfficerType ? { officerType: toOfficerType } : {}) };
+}
 
 const isRecipient = (u: AuthUser, e: { toRole: string; mineId: string; toOfficerType: string | null }) =>
-  u.role === e.toRole && (e.toRole === 'DGMS' || u.mineId === e.mineId) && (!e.toOfficerType || u.officerType === e.toOfficerType);
+  u.role === e.toRole && (e.toRole === 'DGMS' || u.mineId === e.mineId || !!u.mineIds?.includes(e.mineId)) && (!e.toOfficerType || u.officerType === e.toOfficerType);
 
 function parseTarget(u: AuthUser, toRole: unknown, officerType: unknown): { toRole?: Role; toOfficerType?: string | null; error?: string } {
   if (!isRole(toRole) || !TARGETS.includes(toRole)) return { error: 'Choose who to escalate to.' };
@@ -75,17 +72,17 @@ function parseTarget(u: AuthUser, toRole: unknown, officerType: unknown): { toRo
 }
 
 // GET /api/escalations/recipients?mineId=&toRole=&officerType=  (preview who will be notified)
-router.get('/recipients', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/recipients', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   const mineId = String(req.query.mineId || '');
   if (!mineId || !canSeeMine(req, mineId)) return res.status(403).json({ error: 'You can only escalate within your own mine.' });
   const { toRole, toOfficerType, error } = parseTarget(req.user!, req.query.toRole, req.query.officerType);
   if (error) return res.status(400).json({ error });
-  const people = await prisma.user.findMany({ where: recipientsWhere(mineId, toRole!, toOfficerType), select: RECIPIENT_SELECT, orderBy: { name: 'asc' } });
+  const people = await prisma.user.findMany({ where: await recipientsWhere(mineId, toRole!, toOfficerType), select: RECIPIENT_SELECT, orderBy: { name: 'asc' } });
   return res.json(people);
 });
 
 // POST /api/escalations  { recordType, recordId, toRole, toOfficerType?, reason }
-router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   const u = req.user!;
   const { recordType, recordId, reason } = req.body || {};
   const record = await loadRecord(String(recordType), String(recordId));
@@ -106,7 +103,7 @@ router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, r
   }
 
   const recipients = await prisma.user.findMany({
-    where: recipientsWhere(record.mineId, toRole!, toOfficerType),
+    where: await recipientsWhere(record.mineId, toRole!, toOfficerType),
     select: RECIPIENT_SELECT,
     orderBy: { name: 'asc' },
   });
@@ -172,7 +169,7 @@ router.get('/inbox', async (req: AuthenticatedRequest, res: Response) => {
     : u.role && TARGETS.includes(u.role as Role)
       ? {
           toRole: u.role,
-          ...(u.role === 'DGMS' ? {} : { mineId: u.mineId || 'NO_MINE' }),
+          ...(u.role === 'DGMS' ? {} : { mineId: u.mineIds ? { in: u.mineIds } : u.mineId || 'NO_MINE' }),
           OR: [{ toOfficerType: null }, { toOfficerType: u.officerType || '' }],
         }
       : null;

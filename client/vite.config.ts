@@ -112,7 +112,7 @@ export default defineConfig({
     port: 5173,
 
     // Allow ngrok to access the Vite development server
-    allowedHosts: ['.ngrok-free.dev'],
+    allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app'],
 
     proxy: {
       '/api': {

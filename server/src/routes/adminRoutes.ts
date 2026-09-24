@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { USER_STATUSES, validateProfile } from '../roles';
-import { PUBLIC_USER_SELECT } from './authRoutes';
+import { USER_STATUSES, validateProfile, profileFields } from '../roles';
+import { PUBLIC_USER_SELECT, districtProblem, contractProblem } from './authRoutes';
 import { prisma } from '../db';
 
 const router = Router();
@@ -24,13 +24,16 @@ router.get('/users', async (req, res) => {
 
 // POST /api/admin/users  (admin enrolls a person directly; they are approved immediately)
 router.post('/users', async (req: AuthenticatedRequest, res: Response) => {
-  const { email, name, phone, role, officerType, trade, mineId, badgeNumber, isAdmin } = req.body;
+  const { email, name, phone, role, officerType, trade, specialistType, mineId, districtId, shift, contractId, trainingValidUntil, badgeNumber, isAdmin } = req.body;
   const normalizedEmail = clean(email)?.toLowerCase();
   if (!normalizedEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) {
     return res.status(400).json({ error: 'Enter a valid email.' });
   }
   if (!clean(name)) return res.status(400).json({ error: 'Enter a name.' });
-  const problem = validateProfile({ role, officerType, trade, mineId });
+  const problem =
+    validateProfile({ role, officerType, trade, specialistType, mineId, districtId, shift, trainingValidUntil }) ||
+    (await districtProblem(mineId, districtId)) ||
+    (await contractProblem(mineId, contractId));
   if (problem) return res.status(400).json({ error: problem });
   if (await prisma.user.findUnique({ where: { email: normalizedEmail } })) {
     return res.status(409).json({ error: 'Someone with this email is already registered.' });
@@ -42,9 +45,7 @@ router.post('/users', async (req: AuthenticatedRequest, res: Response) => {
       name: clean(name)!,
       phone: clean(phone),
       role,
-      officerType: role === 'OFFICER' ? officerType : null,
-      trade: role === 'WORKER' ? trade : null,
-      mineId: role === 'DGMS' ? null : mineId,
+      ...profileFields(role, { officerType, trade, specialistType, mineId, districtId, shift, contractId, trainingValidUntil }),
       badgeNumber: clean(badgeNumber),
       isAdmin: Boolean(isAdmin),
       status: 'APPROVED',
@@ -61,7 +62,7 @@ router.patch('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
   const existing = await prisma.user.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  const { name, phone, role, officerType, trade, mineId, badgeNumber, isAdmin, status, reviewNote } = req.body;
+  const { name, phone, role, officerType, trade, specialistType, mineId, districtId, shift, contractId, trainingValidUntil, badgeNumber, isAdmin, status, reviewNote } = req.body;
 
   if (status !== undefined && !(USER_STATUSES as readonly string[]).includes(status)) {
     return res.status(400).json({ error: 'Invalid status.' });
@@ -71,15 +72,24 @@ router.patch('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
   }
 
   const nextRole = role !== undefined ? role : existing.role;
-  const profileChanging = [role, officerType, trade, mineId].some((v) => v !== undefined);
+  const pick = <T,>(incoming: T | undefined, current: T) => (incoming !== undefined ? incoming : current);
+  const next = {
+    officerType: pick(officerType, existing.officerType),
+    trade: pick(trade, existing.trade),
+    specialistType: pick(specialistType, existing.specialistType),
+    mineId: pick(mineId, existing.mineId),
+    districtId: pick(districtId, existing.districtId),
+    shift: pick(shift, existing.shift),
+    contractId: pick(contractId, existing.contractId),
+    trainingValidUntil: pick<unknown>(trainingValidUntil, existing.trainingValidUntil),
+  };
+  const profileChanging = [role, officerType, trade, specialistType, mineId, districtId, shift, contractId, trainingValidUntil].some((v) => v !== undefined);
   const approving = status === 'APPROVED';
   if ((profileChanging || approving) && (nextRole || !existing.isAdmin)) {
-    const problem = validateProfile({
-      role: nextRole,
-      officerType: officerType !== undefined ? officerType : existing.officerType,
-      trade: trade !== undefined ? trade : existing.trade,
-      mineId: mineId !== undefined ? mineId : existing.mineId,
-    });
+    const problem =
+      validateProfile({ role: nextRole, ...next }) ||
+      (await districtProblem(next.mineId, next.districtId)) ||
+      (await contractProblem(next.mineId, next.contractId));
     if (problem) return res.status(400).json({ error: problem });
   }
 
@@ -89,9 +99,7 @@ router.patch('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
       ...(name !== undefined ? { name: clean(name) || existing.name } : {}),
       ...(phone !== undefined ? { phone: clean(phone) } : {}),
       ...(role !== undefined ? { role } : {}),
-      ...(officerType !== undefined || role !== undefined ? { officerType: nextRole === 'OFFICER' ? (officerType ?? existing.officerType) : null } : {}),
-      ...(trade !== undefined || role !== undefined ? { trade: nextRole === 'WORKER' ? (trade ?? existing.trade) : null } : {}),
-      ...(mineId !== undefined || role !== undefined ? { mineId: nextRole === 'DGMS' ? null : (mineId ?? existing.mineId) } : {}),
+      ...(profileChanging ? profileFields(nextRole, next) : {}),
       ...(badgeNumber !== undefined ? { badgeNumber: clean(badgeNumber) } : {}),
       ...(isAdmin !== undefined ? { isAdmin: Boolean(isAdmin) } : {}),
       ...(status !== undefined ? { status, reviewedAt: new Date() } : {}),

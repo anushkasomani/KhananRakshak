@@ -8,7 +8,7 @@ import { ContactButtons } from './ContactButtons';
 import { formatTime } from '../attendance';
 import { Field } from './ui';
 
-const TARGETS: EscalationTarget[] = ['OFFICER', 'MINE_MANAGER', 'PROJECT_MANAGER', 'DGMS'];
+const TARGETS: EscalationTarget[] = ['OVERMAN', 'OFFICER', 'ASSISTANT_MANAGER', 'MINE_MANAGER', 'OWNER', 'DGMS'];
 
 export const escalationTarget = (e: Pick<Escalation, 'toRole' | 'toOfficerType'>) =>
   e.toRole === 'OFFICER' && e.toOfficerType ? `${OFFICER_TYPES[e.toOfficerType] || e.toOfficerType} officer` : ROLE_LABELS[e.toRole];
@@ -33,7 +33,7 @@ export const EscalationPanel: React.FC<{
 }> = ({ recordType, recordId, mineId, summary, severe, startOpen = false }) => {
   const { user } = useAuth();
   const targets = TARGETS.filter((t) => user?.isAdmin || ROLE_LEVEL[t] > levelOf(user?.role));
-  const canEscalate = !!user && (user.isAdmin || levelOf(user.role) >= ROLE_LEVEL.SUPERVISOR) && targets.length > 0;
+  const canEscalate = !!user && (user.isAdmin || levelOf(user.role) >= ROLE_LEVEL.SIRDAR) && targets.length > 0;
 
   const [history, setHistory] = useState<Escalation[]>([]);
   const [isOpen, setIsOpen] = useState(startOpen && canEscalate);

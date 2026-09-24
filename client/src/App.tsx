@@ -28,6 +28,9 @@ import { FutureHealthMonitoringPage } from './pages/FutureHealthMonitoringPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AttendancePage } from './pages/AttendancePage';
 import { EscalationsPage } from './pages/EscalationsPage';
+import { ShiftsPage } from './pages/ShiftsPage';
+import { ContractsPage } from './pages/ContractsPage';
+import { FieldReportsPage } from './pages/FieldReportsPage';
 import { AdminMinesPage } from './pages/admin/AdminMinesPage';
 import { MineDetailPage } from './pages/admin/MineDetailPage';
 import { AdminPeoplePage } from './pages/admin/AdminPeoplePage';
@@ -55,6 +58,9 @@ const AppShell: React.FC = () => {
   const pages: Record<string, React.ReactElement> = {
     '/dashboard': <RoleDashboard onOpenSos={openSos} mines={mines} />,
     '/attendance': <AttendancePage mines={mines} />,
+    '/shifts': <ShiftsPage mines={mines} />,
+    '/contracts': <ContractsPage mines={mines} />,
+    '/field-reports': <FieldReportsPage mines={mines} />,
     '/safety-reports': <SafetyReportsPage mines={mines} />,
     '/incidents': <IncidentsPage mines={mines} />,
     '/inspections': <InspectionsPage mines={mines} />,

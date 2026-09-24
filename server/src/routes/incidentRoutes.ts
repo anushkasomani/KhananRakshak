@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { AuthenticatedRequest, requireLevel, actorRole, mineScope, canSeeMine } from '../middleware/auth';
+import { AuthenticatedRequest, requireLevel, actorRole, mineFilter, canSeeMine } from '../middleware/auth';
 import { AuditService } from '../services/auditService';
 import { prisma } from '../db';
 
@@ -12,15 +12,15 @@ const SEVERITIES = ['MINOR', 'SERIOUS', 'CRITICAL', 'FATALITY'];
 router.get('/', async (req: AuthenticatedRequest, res) => {
   const { mineId, severity } = req.query;
   const where: any = {};
-  const scope = mineScope(req);
+  const scope = mineFilter(req, mineId);
   if (scope) where.mineId = scope;
-  else if (mineId) where.mineId = String(mineId);
   if (severity) where.severity = String(severity);
 
   const incidents = await prisma.incident.findMany({
     where,
     include: {
-      mine: { select: { id: true, name: true, code: true } }
+      mine: { select: { id: true, name: true, code: true } },
+      contract: { select: { id: true, title: true, contractor: { select: { name: true } } } }
     },
     orderBy: { createdAt: 'desc' }
   });
@@ -28,9 +28,9 @@ router.get('/', async (req: AuthenticatedRequest, res) => {
 });
 
 // POST /api/incidents
-router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireLevel('SIRDAR'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { mineId, incidentType, location, severity, description, peopleAffected, immediateResponse, rootCause } = req.body;
+    const { mineId, incidentType, location, severity, description, peopleAffected, immediateResponse, rootCause, contractId } = req.body;
 
     if (!mineId || !incidentType || !location || !description) {
       return res.status(400).json({ error: 'Mine, incident type, location, and description are required' });
@@ -38,6 +38,10 @@ router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, r
     if (!canSeeMine(req, String(mineId))) return res.status(403).json({ error: 'You can only log incidents for your own mine.' });
     if (!INCIDENT_TYPES.includes(incidentType)) return res.status(400).json({ error: 'Choose an incident type.' });
     if (severity && !SEVERITIES.includes(severity)) return res.status(400).json({ error: 'Choose a severity.' });
+    if (contractId) {
+      const contract = await prisma.contract.findUnique({ where: { id: String(contractId) } });
+      if (!contract || contract.mineId !== mineId) return res.status(400).json({ error: 'That contract is not at this mine.' });
+    }
 
     const rand = Math.floor(10000 + Math.random() * 90000);
     const incId = `INC-2026-${rand}`;
@@ -55,9 +59,10 @@ router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, r
         rootCause: rootCause || null,
         reportedById: req.user?.id,
         reportedByName: req.user?.name,
+        contractId: contractId || null,
         status: 'INVESTIGATING'
       },
-      include: { mine: true }
+      include: { mine: true, contract: { include: { contractor: true } } }
     });
 
     const auditBlock = await AuditService.recordEvent({
@@ -70,7 +75,8 @@ router.post('/', requireLevel('SUPERVISOR'), async (req: AuthenticatedRequest, r
         type: incident.incidentType,
         mine: incident.mine.name,
         severity: incident.severity,
-        affected: incident.peopleAffected
+        affected: incident.peopleAffected,
+        contractor: incident.contract?.contractor.name || null
       }
     });
 

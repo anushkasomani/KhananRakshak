@@ -24,7 +24,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
   const { user } = useAuth();
   const [selectedType, setSelectedType] = useState('ACCIDENT');
   const [mineId, setMineId] = useState(user?.mineId || '');
-  const [zoneId, setZoneId] = useState('');
+  const [districtId, setDistrictId] = useState(user?.districtId || '');
   const [locationNotes, setLocationNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   const currentMine = mines.find((m) => m.id === mineId) || mines[0];
-  const zones = currentMine?.zones || [];
+  const districts = currentMine?.districts || [];
 
   const handleTrigger = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +42,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
     try {
       const res = await api.triggerSos({
         mineId: currentMine?.id || mineId,
-        zoneId: zoneId || undefined,
+        districtId: districtId || undefined,
         emergencyType: selectedType,
         workerIdentifier: user ? `${user.name}${user.badgeNumber ? ` (${user.badgeNumber})` : ''}` : 'ANONYMOUS',
         locationNotes,
@@ -82,7 +82,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
             </div>
             <h3 className="mt-4 text-base font-semibold">Alert sent</h3>
             <p className="mt-1 text-sm text-zinc-400">
-              The control room and rescue team have been notified.
+              Your Sirdar, the Overman on shift, the officers and the mine manager have been notified.
             </p>
             <p className="mt-4 font-mono text-xs text-zinc-500">{successEvent.id}</p>
             <button onClick={handleClose} className="btn-secondary w-full mt-6">
@@ -122,7 +122,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
                   value={currentMine?.id || ''}
                   onChange={(e) => {
                     setMineId(e.target.value);
-                    setZoneId('');
+                    setDistrictId('');
                   }}
                   className="input"
                 >
@@ -134,12 +134,12 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
                 </select>
               </div>
               <div>
-                <label className="label">Zone</label>
-                <select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className="input">
-                  <option value="">Unknown</option>
-                  {zones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name}
+                <label className="label">District</label>
+                <select value={districtId} onChange={(e) => setDistrictId(e.target.value)} className="input">
+                  <option value="">Not sure</option>
+                  {districts.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
                     </option>
                   ))}
                 </select>
@@ -150,7 +150,7 @@ export const SosEmergencyModal: React.FC<SosEmergencyModalProps> = ({ isOpen, on
               <label className="label">Location details (optional)</label>
               <input
                 type="text"
-                placeholder="e.g. Near haulage incline 3"
+                placeholder="e.g. Gallery 14, near the junction"
                 value={locationNotes}
                 onChange={(e) => setLocationNotes(e.target.value)}
                 className="input"

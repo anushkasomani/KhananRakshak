@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { api } from '../../services/api';
 import { Mine } from '../../types';
 import { PageHeader, Modal, Empty, Field, ListSkeleton } from '../../components/ui';
 import { MinePicker, MinesMap, LatLng } from '../../components/MineMap';
+import { SHIFTS, shiftLabel, clockHour } from '../../roles';
 
 const headcount = (m: Mine) => Object.values(m.staff || {}).reduce((a, b) => a + (b || 0), 0);
 
@@ -14,6 +15,18 @@ export const MineEditor: React.FC<{ mine: Mine | null; onClose: () => void; onSa
   onSaved,
 }) => {
   const [name, setName] = useState(mine?.name || '');
+  const [company, setCompany] = useState(mine?.company || '');
+  const [shiftStart, setShiftStart] = useState(mine?.shiftStartHour ?? 6);
+  // Rows keep a local key so typing in one doesn't reset another when rows are added or removed.
+  const [districts, setDistricts] = useState<{ key: string; id?: string; name: string; location: string }[]>(() =>
+    mine?.districts?.length
+      ? mine.districts.map((d) => ({ key: d.id, id: d.id, name: d.name, location: d.location || '' }))
+      : [1, 2, 3].map((n) => ({ key: `new-${n}`, name: `District ${n}`, location: '' }))
+  );
+  const setDistrict = (key: string, patch: Partial<{ name: string; location: string }>) =>
+    setDistricts((list) => list.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  const addDistrict = () =>
+    setDistricts((list) => [...list, { key: `new-${Date.now()}`, name: `District ${list.length + 1}`, location: '' }]);
   const [code, setCode] = useState(mine?.code || '');
   const [locality, setLocality] = useState(mine?.locality || '');
   const [state, setState] = useState(mine?.state || '');
@@ -34,10 +47,18 @@ export const MineEditor: React.FC<{ mine: Mine | null; onClose: () => void; onSa
       setError('Place the mine on the map.');
       return;
     }
+    const rows = districts.filter((d) => d.name.trim() || d.location.trim());
+    if (rows.some((d) => !d.name.trim())) {
+      setError('Give every district a name.');
+      return;
+    }
     setBusy(true);
     setError(null);
     const body = {
       name,
+      company,
+      shiftStartHour: shiftStart,
+      districts: rows.map((d) => ({ id: d.id, name: d.name.trim(), location: d.location.trim() })),
       code: code || undefined,
       locality,
       state,
@@ -65,6 +86,9 @@ export const MineEditor: React.FC<{ mine: Mine | null; onClose: () => void; onSa
           <Field label="Code (optional)">
             <input value={code} onChange={(e) => setCode(e.target.value)} className="input uppercase placeholder:normal-case" placeholder="Generated if empty" disabled={!!mine} />
           </Field>
+          <Field label="Owner company">
+            <input value={company} onChange={(e) => setCompany(e.target.value)} className="input" placeholder="e.g. Bharat Coking Coal Ltd" />
+          </Field>
           <Field label="Locality">
             <input value={locality} onChange={(e) => setLocality(e.target.value)} className="input" placeholder="Town or area" />
           </Field>
@@ -89,6 +113,60 @@ export const MineEditor: React.FC<{ mine: Mine | null; onClose: () => void; onSa
           />
           <p className="mt-1 text-xs text-zinc-500">Workers can mark attendance only inside this circle.</p>
         </Field>
+
+        <Field label="Shift A starts at">
+          <div className="flex flex-wrap items-center gap-3">
+            <select value={shiftStart} onChange={(e) => setShiftStart(Number(e.target.value))} className="input w-auto">
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {clockHour(h)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-500">{SHIFTS.map((x) => shiftLabel(x, shiftStart)).join('  ·  ')}</p>
+          </div>
+        </Field>
+
+        <div>
+          <p className="label">Districts</p>
+          <p className="-mt-0.5 mb-2 text-xs text-zinc-500">
+            The working sections of the mine. Each district has its own Sirdar on every shift. In an opencast mine, list the sections or pits.
+          </p>
+          <div className="space-y-2">
+            {districts.map((d) => (
+              <div key={d.key} className="flex items-start gap-2">
+                <div className="flex-1 grid sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
+                  <input
+                    value={d.name}
+                    onChange={(e) => setDistrict(d.key, { name: e.target.value })}
+                    className="input"
+                    placeholder="Name, e.g. District 2"
+                    aria-label="District name"
+                  />
+                  <input
+                    value={d.location}
+                    onChange={(e) => setDistrict(d.key, { location: e.target.value })}
+                    className="input"
+                    placeholder="Where: seam, side, depth"
+                    aria-label={`Where ${d.name || 'this district'} is`}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDistricts((list) => list.filter((x) => x.key !== d.key))}
+                  className="btn-ghost shrink-0"
+                  aria-label={`Remove ${d.name || 'district'}`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addDistrict} className="btn-secondary h-8 px-3 mt-2">
+            <Plus className="w-4 h-4" />
+            Add district
+          </button>
+        </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
@@ -151,7 +229,8 @@ export const AdminMinesPage: React.FC = () => {
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-zinc-200 truncate">{m.name}</p>
                 <p className="mt-0.5 text-xs text-zinc-500 truncate">
-                  {[m.locality, m.state].filter(Boolean).join(', ')} · {headcount(m)} {headcount(m) === 1 ? 'person' : 'people'}
+                  {[m.company, m.locality, m.state].filter(Boolean).join(', ')} · {m.districts?.length || 0} districts · {headcount(m)}{' '}
+                  {headcount(m) === 1 ? 'person' : 'people'}
                 </p>
               </div>
               {m.latitude == null && <span className="text-xs text-amber-400">No location</span>}
