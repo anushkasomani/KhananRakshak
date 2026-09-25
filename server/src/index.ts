@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import './asyncErrors';
+import path from 'path';
+import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes';
@@ -24,11 +26,13 @@ import fieldReportRoutes from './routes/fieldReportRoutes';
 import governanceRoutes from './routes/governanceRoutes';
 import statutoryComplianceRoutes from './routes/statutoryComplianceRoutes';
 import { authenticate, requireApproved, requireAdmin } from './middleware/auth';
-import { UPLOAD_ROOT } from './services/photoStorage';
+import { servePhoto } from './services/photoStorage';
 
 
 const app = express();
 const PORT = process.env.PORT || 5002;
+// Hosts put a proxy in front; this makes req.ip and https detection correct.
+app.set('trust proxy', 1);
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -46,10 +50,8 @@ app.get('/api/health', (_req, res) => {
 
 // Mount Routes. Everything except auth requires a signed-in, admin-approved account.
 const approved = [authenticate, requireApproved];
-// Uploaded photos. Names are random UUIDs; <img> tags can't send the auth header, so these are served without it.
-app.use('/api/uploads', express.static(UPLOAD_ROOT, { index: false, maxAge: '30d', immutable: true }), (_req, res) => {
-  res.status(404).json({ error: 'Photo not found' });
-});
+// Uploaded photos. Ids are random UUIDs; <img> tags can't send the auth header, so these are served without it.
+app.get('/api/uploads/:id', servePhoto);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin/compliance', ...approved, requireAdmin, statutoryComplianceRoutes);
 app.use('/api/admin', ...approved, requireAdmin, adminRoutes);
@@ -79,11 +81,19 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
   if (res.headersSent) return;
   if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large.' });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request was not valid JSON.' });
-  if (err?.code === 'P1008' || /database is locked|SQLITE_BUSY/i.test(String(err?.message))) {
+  if (['P1001', 'P1002', 'P1008', 'P1017', 'P2024'].includes(err?.code)) {
     return res.status(503).json({ error: 'The database is busy. Try again in a moment.' });
   }
   return res.status(500).json({ error: 'Something went wrong on the server. Try again.' });
 });
+
+// In production the same server hosts the built web app (client/dist), so the whole thing is one service.
+const CLIENT_DIST = path.resolve(__dirname, '../../client/dist');
+if (fs.existsSync(path.join(CLIENT_DIST, 'index.html'))) {
+  app.use(express.static(CLIENT_DIST, { index: false, maxAge: '1h' }));
+  // Any other non-API path is a page of the single-page app.
+  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
+}
 
 app.listen(PORT, () => {
   console.log(`====================================================`);

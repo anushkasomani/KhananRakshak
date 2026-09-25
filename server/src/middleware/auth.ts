@@ -3,6 +3,10 @@ import jwt from 'jsonwebtoken';
 import { Role, roleLevel, ROLE_LEVEL } from '../roles';
 import { prisma } from '../db';
 
+// Anyone who knows this secret can sign in as anyone, so production refuses to start with the built-in one.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in production.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'coalguard-super-secret-production-key-2026';
 
 export interface AuthUser {

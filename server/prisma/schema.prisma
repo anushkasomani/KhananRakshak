@@ -1,6 +1,6 @@
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -505,4 +505,14 @@ model Escalation {
 
   @@index([recordType, recordId])
   @@index([mineId, toRole, status])
+}
+
+// Uploaded photos (inspection proof, field reports). Kept in the database so they survive redeploys on hosts
+// whose disk is wiped; served at /api/uploads/<id>.
+model Photo {
+  id          String   @id // random UUID plus extension, e.g. "3f9c….jpg"
+  folder      String   // inspections, reports
+  contentType String
+  data        Bytes
+  createdAt   DateTime @default(now())
 }

@@ -3,7 +3,7 @@ import { AuthenticatedRequest, AuthUser, canSeeMine, mineFilter, actorRole } fro
 import { roleLevel, ROLE_LEVEL } from '../roles';
 import { isDateString, indiaDate } from '../geo';
 import { currentShift } from '../shifts';
-import { savePhoto, PhotoError } from '../services/photoStorage';
+import { savePhoto, isStoredPhoto, PhotoError } from '../services/photoStorage';
 import { AuditService } from '../services/auditService';
 import { prisma } from '../db';
 
@@ -70,7 +70,7 @@ async function parseContent(body: any): Promise<{ data?: { body: string | null; 
   const photos: string[] = [];
   try {
     // Photos already uploaded (when editing) are kept as they are; new ones arrive as data URLs.
-    for (const p of incoming) photos.push(typeof p === 'string' && p.startsWith('/api/uploads/reports/') ? p : await savePhoto(p, 'reports'));
+    for (const p of incoming) photos.push(isStoredPhoto(p) ? p : await savePhoto(p, 'reports'));
   } catch (e) {
     if (e instanceof PhotoError) return { error: e.message };
     throw e;

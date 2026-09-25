@@ -12,6 +12,7 @@ async function main() {
   // Clear existing
   await prisma.escalation.deleteMany();
   await prisma.fieldReport.deleteMany();
+  await prisma.photo.deleteMany();
   await prisma.shiftReport.deleteMany();
   await prisma.attendance.deleteMany();
   await prisma.userBadge.deleteMany();

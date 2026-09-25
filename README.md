@@ -8,45 +8,39 @@ It's a website that can also be installed on a phone like an app (PWA).
 
 ## Run it on your laptop
 
-You need Node 18 or newer.
+You need Node 18 or newer, and Docker (for the local database).
 
-**1. Backend** (`server/`, runs on port 5002)
+**1. Database** (Postgres, from the repo root)
+
+```bash
+docker compose up -d db     # Postgres on localhost:5433
+```
+
+**2. Backend** (`server/`, runs on port 5002)
 
 ```bash
 cd server
+cp .env.example .env        # then fill in the values (ask for them)
 npm install
-npx prisma db push      # creates the database file (server/prisma/dev.db)
-                        # after a schema change that renames tables, use: npx prisma db push --force-reset
-npm run seed            # fills it with demo mines, people, incidents, etc.
-npm run dev             # starts the API; restarts itself when you edit code
+npm run migrate             # creates or updates the tables (prisma migrate dev)
+npm run seed                # fills it with demo mines, people, incidents, etc.
+npm run dev                 # starts the API; restarts itself when you edit code
 ```
 
-**2. Frontend** (`client/`, runs on port 5173)
+**3. Frontend** (`client/`, runs on port 5173)
 
 ```bash
 cd client
+cp .env.example .env        # VITE_GOOGLE_CLIENT_ID
 npm install
 npm run dev
 ```
 
 Open http://localhost:5173 and sign in with Google.
 
-**3. The `.env` files** (not in git, ask for the values)
+**Changing the database.** Edit `server/prisma/schema.prisma`, then run `npm run migrate -- --name what-changed` in `server/`. That writes a new migration into `server/prisma/migrations/`; commit it. Deploys apply new migrations automatically before the server starts.
 
-`server/.env`
-```
-GOOGLE_CLIENT_ID=...                  # same Google client ID as the frontend
-ADMIN_EMAILS=you@gmail.com,other@gmail.com   # these accounts become admin on sign-in
-JWT_SECRET=any-long-random-string     # signs login tokens
-ATTENDANCE_RADIUS_OVERRIDE_M=10000    # optional, for testing: lets you check in from 10 km away
-GROQ_API_KEY=your-groq-api-key        # optional: enables admin Governance Intelligence analysis
-GROQ_MODEL=openai/gpt-oss-120b        # optional: Groq model (this is the default)
-```
-
-`client/.env`
-```
-VITE_GOOGLE_CLIENT_ID=...
-```
+The `.env` values are listed in `server/.env.example` and `client/.env.example`. `.env` files are not in git.
 
 > Running `npm run seed` wipes the database and starts over. Your own account goes too, so just sign in again.
 
@@ -220,9 +214,8 @@ server/                 Express + Prisma backend
 ```
 
 **Data storage:**
-- **Database:** one SQLite file, `server/prisma/dev.db`.
-- **Photos:** `server/uploads/`.
-- Both stay on your laptop and are **not in git**.
+- **Database:** Postgres. Locally it runs in Docker (`docker-compose.yml`); in production it's whatever `DATABASE_URL` points to.
+- **Photos:** stored in the database (the `Photo` table) and served at `/api/uploads/<id>`, so they survive redeploys.
 - To browse the database, run `npx prisma studio` in `server/`.
 
 ---
@@ -231,13 +224,30 @@ server/                 Express + Prisma backend
 
 **"Request failed (404)" or a feature seems missing.** Your backend is running old code. Stop it (Ctrl+C) and run `npm run dev` again.
 
-**"The database is busy" or the server logs a timeout.** Something else has `dev.db` open with unsaved changes, usually DB Browser for SQLite. Save or close it.
+**"The database is busy" or can't connect.** Postgres isn't running. Run `docker compose up -d db` from the repo root, and check `DATABASE_URL` in `server/.env`.
 
 **Check-in on a phone does nothing.** Phones only allow GPS on `https`. Opening your laptop's IP over Wi-Fi won't work. Use a tunnel such as `npx cloudflared tunnel --url http://localhost:5173`, and add that URL to the Google client's allowed origins, or sign-in fails.
 
 **"You are X km from the mine."** You're outside the circle. Move the mine's pin in **Admin → Mines**, or set `ATTENDANCE_RADIUS_OVERRIDE_M` while testing.
 
 ---
+
+## Deploy
+
+- **Web app → Vercel** (`client/`). `client/vercel.json` forwards every `/api/...` request to the API, so the browser only ever talks to the Vercel site.
+- **API + Postgres → Render** (`render.yaml`). The API applies new database migrations each time it starts.
+
+See the step-by-step list below. Alternatives: `Dockerfile` builds one image with both, and the root `package.json` builds both into one Node service.
+
+| Where | Variable | Value |
+|---|---|---|
+| Render | `GOOGLE_CLIENT_ID` | the Google OAuth client ID |
+| Render | `ADMIN_EMAILS` | Gmail addresses that become admin on first sign-in |
+| Render | `DATABASE_URL`, `JWT_SECRET` | filled in by Render |
+| Render | `GROQ_API_KEY` | optional |
+| Vercel | `VITE_GOOGLE_CLIENT_ID` | the same Google OAuth client ID |
+
+If the Render service ends up with a different URL than `https://khanan-rakshak-api.onrender.com`, change it in `client/vercel.json` and push.
 
 ## Demo accounts
 
@@ -271,4 +281,4 @@ server/                 Express + Prisma backend
 - **Health monitoring page:** a static mock-up with no real data.
 - **Some compliance numbers:** the monthly trend and average response time are placeholder values.
 - **Fake-GPS apps can fool check-in.** Proper protection needs a native app.
-- **Photos and the database are only on the machine running the server.** Hosting it online means moving photos to cloud storage (only `server/src/services/photoStorage.ts` changes) and using a real database.
+- **Photos are stored in the database.** Fine for a demo; for real use, move them to object storage (only `server/src/services/photoStorage.ts` changes).
