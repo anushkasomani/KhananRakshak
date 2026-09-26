@@ -30,7 +30,9 @@ const FlyTo: React.FC<{ target: LatLng | null; zoom: number }> = ({ target, zoom
   return null;
 };
 
-const zoomFor = (radius: number) => (radius > 3000 ? 12 : radius > 1200 ? 13 : 14);
+/** Zoom that keeps the whole attendance circle in view, down to the 10 km maximum. */
+const zoomFor = (radius: number) =>
+  radius > 7000 ? 10 : radius > 3000 ? 11 : radius > 1200 ? 13 : 14;
 
 /** Editable map: click to drop the pin; the circle shows the attendance radius. */
 export const MinePicker: React.FC<{

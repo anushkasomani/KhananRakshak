@@ -105,8 +105,10 @@ export const MineEditor: React.FC<{ mine: Mine | null; onClose: () => void; onSa
           <input
             type="range"
             min={100}
-            max={5000}
-            step={50}
+            // The API accepts up to 20 km; 10 km covers a large opencast lease and
+            // keeps the slider usable at the small end, where most mines sit.
+            max={10000}
+            step={100}
             value={radius}
             onChange={(e) => setRadius(Number(e.target.value))}
             className="w-full accent-zinc-100"
