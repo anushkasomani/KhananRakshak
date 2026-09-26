@@ -137,6 +137,7 @@ An admin adds a mine by dropping a pin on a map and setting a radius (for exampl
 4. If something goes wrong mid-shift, the Sirdar (or anyone above) marks the district **unsafe**. The crew gets a "leave now" alert and nobody else can check in. After re-inspecting, they clear it again. Both changes are kept on the report.
 5. At the end of the shift the Sirdar writes a **handover** for the next shift's Sirdar.
 
+
 Shift reports are in `server/src/routes/shiftRoutes.ts`. A shift belongs to the day it starts, so a night shift's check-out the next morning still counts towards that day. Arriving up to 4 hours early or leaving up to 4 hours late still counts towards the shift (`server/src/shifts.ts`).
 
 ### Contractors
