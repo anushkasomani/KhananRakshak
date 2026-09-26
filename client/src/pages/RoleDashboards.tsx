@@ -15,6 +15,7 @@ import { EscalationBanner } from './EscalationsPage';
 import { WorkerDashboard } from './WorkerDashboard';
 import { SirdarDashboard, OvermanDashboard } from './ShiftDashboards';
 import { SpecialistDashboard } from './SpecialistDashboard';
+import { SafetyAlertBanner } from '../components/SafetyAlertBanner';
 import { DistrictBoard } from '../components/shift/DistrictBoard';
 import { useShiftBoard } from '../components/shift/useShift';
 import { Greeting, MineTiles, Tile, AttentionList, attentionFor, AttentionItem, WeeklyBars, RiskPill, RISK } from '../components/DashboardKit';
@@ -30,7 +31,19 @@ const SEVERITY_DOT: Record<string, string> = {
 };
 
 /** /dashboard picks the home screen for the signed-in role. */
-export const RoleDashboard: React.FC<{ mines: Mine[]; onOpenSos: () => void }> = ({ mines, onOpenSos }) => {
+/**
+ * Every role's home, with the safety banner above it. Mounted here rather than in each
+ * dashboard so a new role cannot be added without it — an SOS reaches workers, Sirdars
+ * and the supervisory chain alike, and all of them land on this route.
+ */
+export const RoleDashboard: React.FC<{ mines: Mine[]; onOpenSos: () => void }> = ({ mines, onOpenSos }) => (
+  <>
+    <SafetyAlertBanner />
+    <RoleDashboardBody mines={mines} onOpenSos={onOpenSos} />
+  </>
+);
+
+const RoleDashboardBody: React.FC<{ mines: Mine[]; onOpenSos: () => void }> = ({ mines, onOpenSos }) => {
   const { user } = useAuth();
   switch (user?.role) {
     case 'SPECIALIST':

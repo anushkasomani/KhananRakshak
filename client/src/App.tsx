@@ -34,7 +34,8 @@ import { FieldReportsPage } from './pages/FieldReportsPage';
 import { AdminMinesPage } from './pages/admin/AdminMinesPage';
 import { MineDetailPage } from './pages/admin/MineDetailPage';
 import { AdminPeoplePage } from './pages/admin/AdminPeoplePage';
-import { GovernanceIntelligencePage } from './pages/admin/GovernanceIntelligencePage';
+import { MineIntelligencePage } from './pages/admin/MineIntelligencePage';
+import { HazardApprovalsPage } from './pages/HazardApprovalsPage';
 import { StatutoryCompliancePage } from './pages/admin/StatutoryCompliancePage';
 
 const AppShell: React.FC = () => {
@@ -65,6 +66,7 @@ const AppShell: React.FC = () => {
     '/incidents': <IncidentsPage mines={mines} />,
     '/inspections': <InspectionsPage mines={mines} />,
     '/corrective-actions': <CorrectiveActionsPage />,
+    '/hazard-approvals': <HazardApprovalsPage />,
     '/sos-control': <SosControlRoomPage onOpenSos={openSos} />,
     '/escalations': <EscalationsPage />,
     '/grievances': <GrievancesPage mines={mines} />,
@@ -75,7 +77,7 @@ const AppShell: React.FC = () => {
     '/audit-verification': <AuditVerificationPage />,
     '/admin/mines': <AdminMinesPage />,
     '/admin/people': <AdminPeoplePage />,
-    '/admin/governance': <GovernanceIntelligencePage mines={mines} />,
+    '/admin/intelligence': <MineIntelligencePage mines={mines} />,
     '/admin/compliance': <StatutoryCompliancePage mines={mines} />,
   };
   const home = homePath(user);

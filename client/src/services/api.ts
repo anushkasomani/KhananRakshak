@@ -26,6 +26,7 @@ import {
   CheckKey,
   DistrictStatus,
   Shift,
+  Notification,
 } from '../types';
 
 const API_BASE = '/api';
@@ -128,6 +129,31 @@ export interface GovernanceAIAnalysis {
   recommendedActions?: string[];
 }
 
+export type HazardOutcome =
+  | { action: 'SOS_RAISED'; sosId: string; notified: number; level: 'HIGH' }
+  | { action: 'APPROVAL_PENDING'; approvalId: string; notified: number; level: 'MEDIUM' }
+  | { action: 'SUPPRESSED'; reason: string; level: 'HIGH' | 'MEDIUM' }
+  | { action: 'NONE'; reason: string; level: 'LOW' };
+
+export interface HazardApproval {
+  id: string;
+  mineId: string;
+  districtId: string | null;
+  zoneLabel: string;
+  hazardType: string;
+  emergencyType: string;
+  riskScore: number;
+  summary: string;
+  status: 'PENDING' | 'APPROVED' | 'DISMISSED' | 'EXPIRED';
+  raisedAt: string;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  sosAlertId: string | null;
+  mine?: { name: string };
+  district?: { name: string } | null;
+  decidedBy?: { name: string; role: string | null } | null;
+}
+
 export interface ComplianceRule {
   id: string; code: string; title: string; description: string; category: string; frequency: string; severity: string;
   evaluationType: string; configuration: Record<string, unknown>; requiredEvidenceType: string | null; sourceReference: string; active: boolean;
@@ -165,6 +191,16 @@ export const api = {
   getGovernanceAnalytics: (params?: { mineId?: string; periodDays?: number }) => request<GovernanceAnalytics>(`/admin/governance${toQuery({ mineId: params?.mineId, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
   getGovernanceHistory: () => request<GovernanceSavedAnalysis[]>('/admin/governance/history'),
   analyzeGovernance: (question: string, options: { mineId?: string; periodDays?: number } = {}) => request<{ analysis: GovernanceAIAnalysis; analytics: GovernanceAnalytics; requestId: string }>('/admin/governance/analyze', { method: 'POST', body: { question, ...options } }),
+  // Sensor-detected hazards. `detect` may raise an SOS on its own at HIGH risk, or
+  // open an approval a Sirdar must accept before workers are alerted at MEDIUM.
+  detectHazard: (data: { mineId: string; districtId?: string | null; zoneLabel: string; hazardType: string; riskScore: number; summary: string; freshSession?: boolean }) =>
+    request<HazardOutcome>('/hazard-alerts/detect', { method: 'POST', body: data }),
+  getPendingHazards: () => request<HazardApproval[]>('/hazard-alerts/pending'),
+  getHazardHistory: () => request<HazardApproval[]>('/hazard-alerts/history'),
+  approveHazard: (id: string, note?: string) =>
+    request<{ approval: HazardApproval; sosId: string; notified: number }>(`/hazard-alerts/${id}/approve`, { method: 'POST', body: { note } }),
+  dismissHazard: (id: string, note?: string) =>
+    request<{ approval: HazardApproval }>(`/hazard-alerts/${id}/dismiss`, { method: 'POST', body: { note } }),
   getStatutoryCompliance: (params?: { mineId?: string; status?: string; category?: string; periodDays?: number }) => request<StatutoryComplianceDashboard>(`/admin/compliance${toQuery({ mineId: params?.mineId, status: params?.status, category: params?.category, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
   getComplianceRules: (mineId?: string) => request<ComplianceRule[]>(`/admin/compliance/rules${toQuery({ mineId })}`),
   getComplianceChecks: (params?: { mineId?: string; status?: string; category?: string; periodDays?: number }) => request<ComplianceCheck[]>(`/admin/compliance/checks${toQuery({ mineId: params?.mineId, status: params?.status, category: params?.category, periodDays: params?.periodDays ? String(params.periodDays) : undefined })}`),
@@ -326,7 +362,7 @@ export const api = {
   getMyPoints: () => request('/recognition/my-points'),
 
   // Notifications
-  getNotifications: () => request('/notifications'),
+  getNotifications: () => request<Notification[]>('/notifications'),
   markNotificationRead: (id: string) => request(`/notifications/${id}/read`, { method: 'PATCH' }),
   getAnnouncements: (mineId?: string) => request(`/notifications/announcements${toQuery({ mineId })}`),
 };

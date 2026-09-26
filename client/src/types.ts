@@ -57,6 +57,16 @@ export interface ContractRef {
 }
 
 /** A working section of one mine. */
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  /** INFO, WARNING, SOS, RECOGNITION, AUDIT */
+  type: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface District {
   id: string;
   mineId: string;

@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { Logo } from './Logo';
 import { homePath } from '../navigation';
+import { Notification } from '../types';
 
 interface NavbarProps {
   onOpenSos?: () => void;
@@ -30,14 +31,6 @@ const Dropdown: React.FC<{ open: boolean; className: string; children: React.Rea
     )}
   </AnimatePresence>
 );
-
-interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  read: boolean;
-  createdAt: string;
-}
 
 function timeAgo(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -70,8 +63,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSos, onOpenMobileNav, hasB
   const notifRef = useCloseOnOutsideClick(showNotifs, () => setShowNotifs(false));
   const userRef = useCloseOnOutsideClick(showUserMenu, () => setShowUserMenu(false));
 
+  // Polled, not fetched once: an SOS raised by the sensor layer while someone has the
+  // app open would otherwise stay invisible until they reloaded the page — which for
+  // an emergency alert is the same as never arriving.
   useEffect(() => {
-    api.getNotifications().then(setNotifications).catch(() => setNotifications([]));
+    if (!user?.id) return;
+    let cancelled = false;
+    const load = () => api.getNotifications()
+      .then((rows) => { if (!cancelled) setNotifications(rows); })
+      .catch(() => { /* a failed poll keeps the last good list rather than blanking it */ });
+    void load();
+    const id = window.setInterval(load, 20000);
+    return () => { cancelled = true; window.clearInterval(id); };
   }, [user?.id]);
 
   const unread = notifications.filter((n) => !n.read).length;

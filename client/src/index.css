@@ -118,6 +118,40 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/*
+ * Sensor group icons. Each drifts in the axis its instruments actually read, so the
+ * motion says "this is sampling continuously" rather than decorating: air and water
+ * move across, ground settles downward, the gauge needle sweeps. Kept small and slow
+ * — this sits behind live numbers and must not pull the eye off them.
+ */
+@keyframes drift-x {
+  0%, 100% { transform: translateX(-5px); opacity: 0.55; }
+  50% { transform: translateX(5px); opacity: 1; }
+}
+@keyframes drift-y {
+  0%, 100% { transform: translateY(-4px); opacity: 0.55; }
+  50% { transform: translateY(4px); opacity: 1; }
+}
+@keyframes sweep {
+  0%, 100% { transform: rotate(-28deg); opacity: 0.6; }
+  50% { transform: rotate(28deg); opacity: 1; }
+}
+/* The travel is a third of the icon's own width, and opacity moves with it: at a 14px
+   icon a 1–2px slide reads as nothing at all, so the amplitude has to be a visible
+   fraction of the glyph rather than a nudge. */
+.sensor-icon-x { animation: drift-x 2s ease-in-out infinite; }
+.sensor-icon-y { animation: drift-y 2.2s ease-in-out infinite; }
+.sensor-icon-sweep { animation: sweep 2.2s ease-in-out infinite; transform-origin: 50% 70%; }
+
+/* Someone who has asked for less motion gets a static icon; the reading is the point. */
+@media (prefers-reduced-motion: reduce) {
+  .sensor-icon-x,
+  .sensor-icon-y,
+  .sensor-icon-sweep {
+    animation: none;
+  }
+}
 .stagger > * {
   animation: rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }

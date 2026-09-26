@@ -17,6 +17,7 @@ import {
   Users,
   CalendarCheck,
   ChevronsUp,
+  ShieldQuestion,
   Layers,
   HardHat,
   FileText,
@@ -47,6 +48,7 @@ export const NAV: NavItem[] = [
   { to: '/incidents', label: 'Incidents', hint: 'Something that already happened', icon: Flame, group: 'Safety', min: 'SIRDAR' },
   { to: '/inspections', label: 'Inspections', hint: 'Checks assigned to you, or waiting for approval', icon: ClipboardCheck, group: 'Safety' },
   { to: '/corrective-actions', label: 'Corrective actions', hint: 'Follow-up work with a deadline', icon: ListChecks, group: 'Safety', min: 'SIRDAR' },
+  { to: '/hazard-approvals', label: 'Hazard approvals', hint: 'Sensor hazards waiting on your decision', icon: ShieldQuestion, group: 'Safety', min: 'SIRDAR' },
   { to: '/sos-control', label: 'SOS control', hint: 'Live emergencies', icon: Radio, group: 'Safety', min: 'SIRDAR' },
   { to: '/escalations', label: 'Escalations', hint: 'Problems pushed up to you, or by you', icon: ChevronsUp, group: 'Safety', min: 'SIRDAR' },
 
@@ -61,7 +63,7 @@ export const NAV: NavItem[] = [
 
   { to: '/admin/mines', label: 'Mines', hint: 'Mines and their districts', icon: MapPinned, group: 'Admin', adminOnly: true },
   { to: '/admin/people', label: 'People', hint: 'Approve and edit accounts', icon: Users, group: 'Admin', adminOnly: true },
-  { to: '/admin/governance', label: 'Governance intelligence', icon: BrainCircuit, group: 'Admin', subgroup: 'Governance', adminOnly: true },
+  { to: '/admin/intelligence', label: 'AI Mine Intelligence', hint: 'Live sensor risk, historical hazard evidence and escalation', icon: BrainCircuit, group: 'Admin', subgroup: 'Governance', adminOnly: true },
   { to: '/admin/compliance', label: 'Statutory compliance', icon: Scale, group: 'Admin', subgroup: 'Governance', adminOnly: true },
 ];
 
