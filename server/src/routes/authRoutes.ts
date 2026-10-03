@@ -6,8 +6,7 @@ import { adminEmails, validateProfile, profileFields } from '../roles';
 import { prisma } from '../db';
 
 const router = Router();
-const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
-const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const PUBLIC_USER_SELECT = {
   id: true,
@@ -75,10 +74,6 @@ router.post('/login', async (req, res) => {
 
 // POST /api/auth/google
 router.post('/google', async (req, res) => {
-  if (!googleClientId || !googleClient) {
-    return res.status(503).json({ error: 'Google sign-in is not configured on this server.' });
-  }
-
   const { credential } = req.body;
   if (!credential) {
     return res.status(400).json({ error: 'Google credential required' });
@@ -86,7 +81,7 @@ router.post('/google', async (req, res) => {
 
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: googleClientId });
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
     payload = ticket.getPayload();
   } catch {
     return res.status(401).json({ error: 'Invalid Google credential' });
