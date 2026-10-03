@@ -142,18 +142,37 @@ const AppGate: React.FC = () => {
   return <AppShell />;
 };
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '';
 
-export const App: React.FC = () => (
-  <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-    <MotionConfig reducedMotion="user">
-      <AuthProvider>
-        <BrowserRouter>
-          <AppGate />
-        </BrowserRouter>
-      </AuthProvider>
-    </MotionConfig>
-  </GoogleOAuthProvider>
-);
+if (import.meta.env.DEV) {
+  console.log('Google Client ID:', GOOGLE_CLIENT_ID || '(not configured)');
+}
+
+export const App: React.FC = () => {
+  if (!GOOGLE_CLIENT_ID) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-6 text-zinc-200">
+        <div className="max-w-md text-center">
+          <p className="text-lg font-semibold">Google sign-in is not configured.</p>
+          <p className="mt-2 text-sm text-zinc-400">
+            Set VITE_GOOGLE_CLIENT_ID in client/.env to your Google OAuth client ID.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <MotionConfig reducedMotion="user">
+        <AuthProvider>
+          <BrowserRouter>
+            <AppGate />
+          </BrowserRouter>
+        </AuthProvider>
+      </MotionConfig>
+    </GoogleOAuthProvider>
+  );
+};
 
 export default App;
